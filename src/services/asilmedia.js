@@ -66,6 +66,48 @@ function absUrl(src) {
   return src.startsWith('http') ? src : `${BASE}${src}`;
 }
 
+// Extract the raw file URL from a player.html?file=<encoded> wrapper.
+// Returns the original string unchanged if it is not a player-page URL.
+function unwrapPlayerUrl(src) {
+  if (!src) return null;
+  if (!src.includes('player.html')) return src;
+  const m = src.match(/[?&]file=([^&]+)/);
+  if (!m) return src;
+  try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
+}
+
+// Encode only unencoded spaces in a URL (e.g. from raw href/data-url attributes).
+// Leaves already-percent-encoded characters and parentheses untouched.
+function normalizeVideoUrl(raw) {
+  if (!raw) return null;
+  return raw.replace(/ /g, '%20');
+}
+
+// HEAD-check a single video URL. Returns { accessible, status }.
+// 404 → confirmed broken. Other errors → treated as accessible (optimistic).
+async function probeUrl(videoUrl) {
+  try {
+    const res = await axios.head(videoUrl, {
+      timeout: 4000,
+      headers: { 'User-Agent': 'Mozilla/5.0', Range: 'bytes=0-0' },
+      maxRedirects: 5,
+    });
+    return { accessible: res.status < 400, status: res.status };
+  } catch (err) {
+    const status = err.response?.status || 0;
+    // Only a definitive 404 is treated as broken; network/timeout = optimistic
+    return { accessible: status !== 404, status };
+  }
+}
+
+// Verify all sources in parallel; annotate with accessible flag.
+// Keeps the full list but marks confirmed-broken ones so caller can skip them.
+async function verifyVideoSources(sources) {
+  if (!sources.length) return sources;
+  const probes = await Promise.all(sources.map(s => probeUrl(s.videoUrl)));
+  return sources.map((s, i) => ({ ...s, accessible: probes[i].accessible }));
+}
+
 function parseCards(html) {
   const $ = cheerio.load(html);
   const items = [];
@@ -335,34 +377,35 @@ async function getDetail(url) {
   // ── Episodes (serials) ──
   const episodes = [];
   $('#episodes-raw-data a[href]').each((_, el) => {
-    const videoUrl = $(el).attr('href');
-    const label    = $(el).attr('data-label') || $(el).text().trim();
-    const num      = parseInt($(el).text().trim());
+    const raw   = $(el).attr('href');
+    const label = $(el).attr('data-label') || $(el).text().trim();
+    const num   = parseInt($(el).text().trim());
+    const videoUrl = normalizeVideoUrl(unwrapPlayerUrl(raw));
     if (videoUrl) {
       episodes.push({
-        episode:   isNaN(num) ? episodes.length + 1 : num,
+        episode:  isNaN(num) ? episodes.length + 1 : num,
         label,
         videoUrl,
-        playerUrl: `${BASE}/player/player.html?file=${encodeURIComponent(videoUrl)}`,
       });
     }
   });
 
   // ── Video quality sources (movies) ──
-  const videoSources = [];
+  // Parse tabs first, then verify all in parallel to find accessible ones.
+  let videoSources = [];
   $('.fs-player__tab[data-url]').each((_, el) => {
-    const videoUrl = $(el).attr('data-url');
-    const quality  = $(el).attr('data-name') || $(el).text().trim();
+    const raw       = $(el).attr('data-url');
+    const quality   = $(el).attr('data-name') || $(el).text().trim();
     const isDefault = $(el).hasClass('active');
+    const videoUrl  = normalizeVideoUrl(unwrapPlayerUrl(raw));
     if (videoUrl) {
-      videoSources.push({
-        quality,
-        videoUrl,
-        playerUrl: `${BASE}/player/player.html?file=${encodeURIComponent(videoUrl)}`,
-        isDefault,
-      });
+      videoSources.push({ quality, videoUrl, isDefault });
     }
   });
+
+  if (videoSources.length > 0) {
+    videoSources = await verifyVideoSources(videoSources);
+  }
 
   // ── Screenshots ──
   const screenshots = [];
@@ -379,18 +422,26 @@ async function getDetail(url) {
   const relatedHtml = `<div>${$('.fs-related').html() || ''}</div>`;
   const related = parseCards(relatedHtml).slice(0, 12);
 
-  // ── Player src ──
-  let playerSrc = $('iframe[src*="//"]').first().attr('src')
-    || $('iframe[data-src*="//"]').first().attr('data-src')
-    || null;
+  // ── playerSrc: first accessible direct video URL ──
+  // For movies: prefer the active (default) tab if accessible, else first accessible one.
+  // For serials: use first episode (too many to probe all).
+  let playerSrc = null;
 
+  if (videoSources.length > 0) {
+    const accessible = videoSources.filter(s => s.accessible !== false);
+    const best = accessible.find(s => s.isDefault) || accessible[0] || videoSources[0];
+    playerSrc = best.videoUrl;
+  } else if (episodes.length > 0) {
+    playerSrc = episodes[0].videoUrl;
+  }
+
+  // Fallback: iframe data-player-src (lazy-load facade pattern on asilmedia)
   if (!playerSrc) {
-    if (videoSources.length > 0) {
-      const def = videoSources.find(s => s.isDefault) || videoSources[0];
-      playerSrc = def.playerUrl;
-    } else if (episodes.length > 0) {
-      playerSrc = episodes[0].playerUrl;
-    }
+    const iframeSrc = $('iframe[data-player-src]').first().attr('data-player-src')
+      || $('iframe[src]').first().attr('src')
+      || $('iframe[data-src]').first().attr('data-src')
+      || null;
+    playerSrc = normalizeVideoUrl(unwrapPlayerUrl(iframeSrc));
   }
 
   const isSerial = episodes.length > 0;
@@ -424,14 +475,15 @@ async function getDetail(url) {
 // ─── Video URL check ──────────────────────────────────────────────────────────
 
 async function checkVideoUrl(videoUrl) {
+  const normalized = normalizeVideoUrl(videoUrl);
   try {
-    const response = await axios.head(videoUrl, {
+    const response = await axios.head(normalized, {
       timeout: 8000,
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-0' },
+      headers: { 'User-Agent': 'Mozilla/5.0', Range: 'bytes=0-0' },
       maxRedirects: 5,
     });
     return {
-      accessible:    true,
+      accessible:    response.status < 400,
       status:        response.status,
       contentType:   response.headers['content-type'] || null,
       contentLength: response.headers['content-length']
@@ -440,7 +492,8 @@ async function checkVideoUrl(videoUrl) {
       acceptRanges: response.headers['accept-ranges'] || null,
     };
   } catch (err) {
-    return { accessible: false, status: err.response?.status || 0, error: err.message };
+    const status = err.response?.status || 0;
+    return { accessible: status !== 404, status, error: err.message };
   }
 }
 

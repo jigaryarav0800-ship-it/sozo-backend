@@ -74,19 +74,18 @@ module.exports = {
       Episode: {
         type: 'object',
         properties: {
-          episode:   { type: 'integer', example: 1 },
-          label:     { type: 'string', example: '1-qism' },
-          videoUrl:  { type: 'string' },
-          playerUrl: { type: 'string', description: 'asilmedia.org player URL' },
+          episode:  { type: 'integer', example: 1 },
+          label:    { type: 'string', example: '1-qism' },
+          videoUrl: { type: 'string', description: 'To\'g\'ridan-to\'g\'ri MP4/video URL' },
         },
       },
       VideoSource: {
         type: 'object',
         properties: {
-          quality:   { type: 'string', example: '720p' },
-          videoUrl:  { type: 'string' },
-          playerUrl: { type: 'string' },
-          isDefault: { type: 'boolean' },
+          quality:    { type: 'string', example: '720p' },
+          videoUrl:   { type: 'string', description: 'To\'g\'ridan-to\'g\'ri MP4/video URL' },
+          isDefault:  { type: 'boolean' },
+          accessible: { type: 'boolean', description: 'HEAD tekshiruvi natijasi — false bo\'lsa URL 404 qaytargan' },
         },
       },
       Screenshot: {
@@ -116,7 +115,7 @@ module.exports = {
           videoSources: { type: 'array', items: { $ref: '#/components/schemas/VideoSource' }, description: 'Faqat kinolar uchun' },
           screenshots:  { type: 'array', items: { $ref: '#/components/schemas/Screenshot' } },
           related:      { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
-          playerSrc:    { type: 'string', nullable: true, description: 'Tayyor player URL (birinchi epizod yoki default sifat)' },
+          playerSrc:    { type: 'string', nullable: true, description: 'To\'g\'ridan-to\'g\'ri video URL — birinchi epizod yoki default sifat (player.html wrapper OLIB TASHLANGAN)' },
           url:          { type: 'string' },
         },
       },
