@@ -26,8 +26,14 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use((err, req, res, next) => {
   // MongoDB duplicate key error
   if (err.code === 11000) {
-    const field = Object.keys(err.keyPattern || {})[0] || 'field';
-    return res.status(409).json({ message: `${field} already in use` });
+    const field = Object.keys(err.keyPattern || {})[0] || '';
+    const friendly = {
+      email:       'Email already in use',
+      username:    'Username already taken',
+      firebaseUid: 'Google account already linked to another user',
+    };
+    const message = friendly[field] || 'An account with these details already exists';
+    return res.status(409).json({ message });
   }
   const status = err.status || 500;
   res.status(status).json({ message: err.message || 'Internal server error' });

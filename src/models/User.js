@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, default: null },
   photoURL: { type: String, default: null },
-  firebaseUid: { type: String, default: null, index: true },
+  firebaseUid: { type: String, unique: true, sparse: true },
   authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
   favorites: [{ type: String }],
   watchHistory: [
