@@ -1,2 +1,7 @@
 node_modules/
 dist/
+.env
+serviceAccount.json
+*.json.bak
+.idea/
+.DS_Store

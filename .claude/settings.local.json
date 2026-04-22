@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:asilmedia.org)"
+      "WebFetch(domain:asilmedia.org)",
+      "Bash(git stash *)"
     ]
   }
 }
