@@ -1,7 +1,8 @@
 node_modules/
 dist/
 .env
-/.claude
+.idea/
+.claude/
 serviceAccount.json
 *.json.bak
 .idea/
