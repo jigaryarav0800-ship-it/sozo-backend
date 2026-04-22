@@ -28,6 +28,11 @@ async function updateProfile(req, res) {
   res.json({ user });
 }
 
+async function getFavorites(req, res) {
+  const favorites = await authService.getFavorites(req.user.id);
+  res.json({ items: favorites });
+}
+
 async function addFavorite(req, res) {
   const { url } = req.body;
   if (!url) return res.status(400).json({ message: 'url is required' });
@@ -42,11 +47,40 @@ async function removeFavorite(req, res) {
   res.json({ user });
 }
 
+async function getHistory(req, res) {
+  const items = await authService.getHistory(req.user.id);
+  res.json({ items });
+}
+
 async function addToHistory(req, res) {
-  const { url } = req.body;
+  const { url, title, thumbnail } = req.body;
   if (!url) return res.status(400).json({ message: 'url is required' });
-  const user = await authService.addToHistory(req.user.id, url);
+  const user = await authService.addToHistory(req.user.id, { contentUrl: url, title, thumbnail });
   res.json({ user });
 }
 
-module.exports = { register, login, getProfile, updateProfile, addFavorite, removeFavorite, addToHistory };
+async function clearHistory(req, res) {
+  const user = await authService.clearHistory(req.user.id);
+  res.json({ user });
+}
+
+async function removeFromHistory(req, res) {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ message: 'url is required' });
+  const user = await authService.removeFromHistory(req.user.id, url);
+  res.json({ user });
+}
+
+async function googleAuth(req, res) {
+  const { idToken } = req.body;
+  if (!idToken) return res.status(400).json({ message: 'idToken is required' });
+  const result = await authService.loginWithGoogle(idToken);
+  res.json(result);
+}
+
+module.exports = {
+  register, login, googleAuth,
+  getProfile, updateProfile,
+  getFavorites, addFavorite, removeFavorite,
+  getHistory, addToHistory, clearHistory, removeFromHistory,
+};

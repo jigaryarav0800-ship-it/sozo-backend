@@ -3,7 +3,6 @@ const cheerio = require('cheerio');
 
 const BASE = 'https://asilmedia.org';
 
-// Actual URL paths on asilmedia.org
 const CATEGORIES = {
   'tarjima-kinolar': 'films/tarjima_kinolar',
   'xorij-kinolar':   'films/xorij_kinolar',
@@ -30,18 +29,43 @@ const http = axios.create({
   },
 });
 
+// ─── Simple in-memory cache ───────────────────────────────────────────────────
+
+const _cache = new Map();
+
+function cacheGet(key) {
+  const entry = _cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expires) { _cache.delete(key); return null; }
+  return entry.data;
+}
+
+function cacheSet(key, data, ttlMs = 5 * 60 * 1000) {
+  _cache.set(key, { data, expires: Date.now() + ttlMs });
+}
+
+// ─── HTTP ─────────────────────────────────────────────────────────────────────
+
 async function fetchHtml(path) {
   try {
     const { data } = await http.get(path);
     return data;
   } catch (err) {
     const status = err.response?.status;
-    const msg = status ? `asilmedia.org returned ${status} for "${path}"` : `Network error: ${err.message}`;
+    const msg = status
+      ? `asilmedia.org returned ${status} for "${path}"`
+      : `Network error: ${err.message}`;
     throw Object.assign(new Error(msg), { status: status || 502 });
   }
 }
 
-// Parse article.card elements
+// ─── Parsers ──────────────────────────────────────────────────────────────────
+
+function absUrl(src) {
+  if (!src) return null;
+  return src.startsWith('http') ? src : `${BASE}${src}`;
+}
+
 function parseCards(html) {
   const $ = cheerio.load(html);
   const items = [];
@@ -61,25 +85,18 @@ function parseCards(html) {
 
     const imgEl = $el.find('img.img-cover');
     const imgSrc = imgEl.attr('src') || imgEl.attr('data-src') || '';
-    const thumbnail = imgSrc
-      ? (imgSrc.startsWith('http') ? imgSrc : `${BASE}${imgSrc}`)
-      : null;
 
     const title = $el.find('h2.card__title').text().trim()
       || imgEl.attr('alt') || $link.attr('title') || '';
 
-    // Rating: text like "+7", "0", "-2"
     const ratingRaw = $el.find('.ratingtypeplusminus').text().trim();
-    const rating = parseInt(ratingRaw) || 0;
 
-    // Qualities: badge--hd (1080p) and badge--quality (720p, 480p, ...)
     const qualities = [];
     $el.find('.badge--hd, .badge--quality').each((_, b) => {
       const q = $(b).text().trim();
       if (q) qualities.push(q);
     });
 
-    // Year from meta link
     const $meta = $el.find('.card__meta');
     const yearText = $meta.find('a[href*="/xfsearch/year/"]').text().trim();
     const categoryText = $meta.find('span').first().text().trim();
@@ -89,9 +106,9 @@ function parseCards(html) {
       title,
       slug: slugMatch ? slugMatch[1] : '',
       url,
-      thumbnail,
+      thumbnail: absUrl(imgSrc),
       year: yearText ? parseInt(yearText) || null : null,
-      rating,
+      rating: parseInt(ratingRaw) || 0,
       qualities,
       category: categoryText || null,
     });
@@ -100,34 +117,31 @@ function parseCards(html) {
   return items;
 }
 
-// Parse total pages from div.pagination
 function parseTotalPages(html) {
   const $ = cheerio.load(html);
   let max = 1;
   $('div.pagination a[href]').each((_, el) => {
     const href = $(el).attr('href') || '';
     const m = href.match(/\/page\/(\d+)\//);
-    if (m) {
-      const n = parseInt(m[1]);
-      if (n > max) max = n;
-    }
-    // Also check link text as page number
+    if (m) { const n = parseInt(m[1]); if (n > max) max = n; }
     const text = parseInt($(el).text().trim());
     if (!isNaN(text) && text > max) max = text;
   });
   return max;
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// ─── Public list API ──────────────────────────────────────────────────────────
 
 async function getLatest(page = 1) {
+  const key = `latest:${page}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
   const path = page > 1 ? `/page/${page}/` : '/';
   const html = await fetchHtml(path);
-  return {
-    items: parseCards(html),
-    page: Number(page),
-    totalPages: parseTotalPages(html),
-  };
+  const result = { items: parseCards(html), page: Number(page), totalPages: parseTotalPages(html) };
+  cacheSet(key, result);
+  return result;
 }
 
 async function getCategory(category, page = 1) {
@@ -138,116 +152,299 @@ async function getCategory(category, page = 1) {
       { status: 400 }
     );
   }
+  const key = `cat:${category}:${page}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
   const path = page > 1 ? `/${catPath}/page/${page}/` : `/${catPath}/`;
   const html = await fetchHtml(path);
-  return {
-    items: parseCards(html),
-    category,
-    page: Number(page),
-    totalPages: parseTotalPages(html),
-  };
+  const result = { items: parseCards(html), category, page: Number(page), totalPages: parseTotalPages(html) };
+  cacheSet(key, result);
+  return result;
 }
 
 async function getGenre(genre, page = 1) {
+  const key = `genre:${genre}:${page}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
   const path = page > 1
     ? `/xfsearch/genre/${genre}/page/${page}/`
     : `/xfsearch/genre/${genre}/`;
   const html = await fetchHtml(path);
-  return {
-    items: parseCards(html),
-    genre,
-    page: Number(page),
-    totalPages: parseTotalPages(html),
-  };
+  const result = { items: parseCards(html), genre, page: Number(page), totalPages: parseTotalPages(html) };
+  cacheSet(key, result);
+  return result;
 }
 
 async function getYear(year, page = 1) {
+  const key = `year:${year}:${page}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
   const path = page > 1
     ? `/xfsearch/year/${year}/page/${page}/`
     : `/xfsearch/year/${year}/`;
   const html = await fetchHtml(path);
-  return {
-    items: parseCards(html),
-    year: Number(year),
-    page: Number(page),
-    totalPages: parseTotalPages(html),
-  };
+  const result = { items: parseCards(html), year: Number(year), page: Number(page), totalPages: parseTotalPages(html) };
+  cacheSet(key, result);
+  return result;
+}
+
+async function getCountry(country, page = 1) {
+  const key = `country:${country}:${page}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
+  const path = page > 1
+    ? `/xfsearch/world/${encodeURIComponent(country)}/page/${page}/`
+    : `/xfsearch/world/${encodeURIComponent(country)}/`;
+  const html = await fetchHtml(path);
+  const result = { items: parseCards(html), country, page: Number(page), totalPages: parseTotalPages(html) };
+  cacheSet(key, result);
+  return result;
+}
+
+async function getActor(actor, page = 1) {
+  const key = `actor:${actor}:${page}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
+  const path = page > 1
+    ? `/xfsearch/actors/${encodeURIComponent(actor)}/page/${page}/`
+    : `/xfsearch/actors/${encodeURIComponent(actor)}/`;
+  const html = await fetchHtml(path);
+  const result = { items: parseCards(html), actor, page: Number(page), totalPages: parseTotalPages(html) };
+  cacheSet(key, result);
+  return result;
+}
+
+async function getDirector(director, page = 1) {
+  const key = `director:${director}:${page}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
+  const path = page > 1
+    ? `/xfsearch/directed/${encodeURIComponent(director)}/page/${page}/`
+    : `/xfsearch/directed/${encodeURIComponent(director)}/`;
+  const html = await fetchHtml(path);
+  const result = { items: parseCards(html), director, page: Number(page), totalPages: parseTotalPages(html) };
+  cacheSet(key, result);
+  return result;
 }
 
 async function search(query, page = 1) {
+  const key = `search:${query}:${page}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
   const start = (Number(page) - 1) * 10;
   const path = `/?do=search&subaction=search&search_start=${start}&full_search=0&story=${encodeURIComponent(query)}`;
   const html = await fetchHtml(path);
-  return {
-    items: parseCards(html),
-    query,
-    page: Number(page),
-    totalPages: parseTotalPages(html),
-  };
+  const result = { items: parseCards(html), query, page: Number(page), totalPages: parseTotalPages(html) };
+  cacheSet(key, result, 2 * 60 * 1000); // 2 min for search
+  return result;
 }
+
+// ─── Home page combined ───────────────────────────────────────────────────────
+
+async function getHome() {
+  const cached = cacheGet('home');
+  if (cached) return cached;
+
+  const [latest, serials, tarjima, multfilm] = await Promise.all([
+    getLatest(1).catch(() => ({ items: [] })),
+    getCategory('seriallar', 1).catch(() => ({ items: [] })),
+    getCategory('tarjima-kinolar', 1).catch(() => ({ items: [] })),
+    getCategory('multfilmlar', 1).catch(() => ({ items: [] })),
+  ]);
+
+  const result = {
+    latest:   latest.items.slice(0, 12),
+    serials:  serials.items.slice(0, 12),
+    tarjima:  tarjima.items.slice(0, 12),
+    multfilm: multfilm.items.slice(0, 12),
+  };
+
+  cacheSet('home', result, 5 * 60 * 1000);
+  return result;
+}
+
+// ─── Detail ───────────────────────────────────────────────────────────────────
 
 async function getDetail(url) {
   if (!url || !url.startsWith('http')) {
     throw Object.assign(new Error('Valid absolute URL required'), { status: 400 });
   }
+
+  const key = `detail:${url}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
   const path = url.replace(BASE, '');
   const html = await fetchHtml(path);
   const $ = cheerio.load(html);
 
-  const title = $('h1[itemprop="name"], .full-title, h1.short-title, h1').first().text().trim()
+  const title = $('h1[itemprop="name"], .fs-title, h1.full-title, h1').first().text().trim()
     || $('meta[property="og:title"]').attr('content') || '';
 
   const thumbnail = $('meta[property="og:image"]').attr('content')
-    || $('.card__poster img, .full-poster img, .poster img').first().attr('src') || null;
+    || $('.fs-poster img, .card__poster img, .full-poster img, .poster img').first().attr('src')
+    || null;
 
-  const description = $('[itemprop="description"], .full-text, .short-story-text, .full-story-short-s').first().text().trim()
-    || $('meta[name="description"]').attr('content') || null;
+  const description = $('.fs-description p').first().text().trim()
+    || $('.fs-description').first().text().trim()
+    || $('[itemprop="description"]').first().text().trim()
+    || $('meta[name="description"]').attr('content')
+    || null;
 
+  // Genres
   const genres = [];
   $('a[href*="/xfsearch/genre/"]').each((_, el) => {
     const g = $(el).text().trim();
-    if (g) genres.push(g.toLowerCase());
+    if (g) genres.push(g);
   });
 
+  // Actors — correct path is /xfsearch/actors/ (plural)
   const cast = [];
-  $('a[href*="/xfsearch/actor/"]').each((_, el) => {
+  $('a[href*="/xfsearch/actors/"]').each((_, el) => {
     const name = $(el).text().trim();
     if (name) cast.push(name);
   });
 
-  const qualities = [];
-  $('a[href*="/xfsearch/quality/"], .badge--hd, .badge--quality').each((_, el) => {
-    const q = $(el).text().trim();
-    if (q) qualities.push(q);
-  });
+  // Director — correct path is /xfsearch/directed/
+  const director = $('a[href*="/xfsearch/directed/"]').first().text().trim() || null;
 
-  const yearText = $('a[href*="/xfsearch/year/"]').first().text().trim();
-  const ratingRaw = $('[itemprop="ratingValue"], .ratingtypeplusminus').first().text().trim();
-  const duration = $('a[href*="/xfsearch/duration/"], [itemprop="duration"]').first().text().trim() || null;
-  const country = $('a[href*="/xfsearch/world/"]').first().text().trim() || null;
-  const director = $('a[href*="/xfsearch/director/"]').first().text().trim() || null;
-
-  // Video player src — iframe or video tag
-  const playerSrc = $('iframe[src*="//"], iframe[data-src*="//"]').first().attr('src')
-    || $('iframe[src*="//"], iframe[data-src*="//"]').first().attr('data-src')
+  // Duration — correct path is /xfsearch/time/
+  const duration = $('a[href*="/xfsearch/time/"]').first().text().trim()
+    || $('[itemprop="duration"]').first().text().trim()
     || null;
 
-  return {
+  const yearText = $('a[href*="/xfsearch/year/"]').first().text().trim();
+  const country  = $('a[href*="/xfsearch/world/"]').first().text().trim() || null;
+
+  // Likes / dislikes (separate counters)
+  const likes    = parseInt($('[data-likes-id]').first().text().trim()) || 0;
+  const dislikes = parseInt($('[data-dislikes-id]').first().text().trim()) || 0;
+
+  // Content ID from the rate widget
+  const contentId = $('.fs-action-icons__rate[data-id]').first().attr('data-id')
+    || (url.match(/\/(\d+)-/) || [])[1]
+    || null;
+
+  // ── Episodes (serials) ──
+  const episodes = [];
+  $('#episodes-raw-data a[href]').each((_, el) => {
+    const videoUrl = $(el).attr('href');
+    const label    = $(el).attr('data-label') || $(el).text().trim();
+    const num      = parseInt($(el).text().trim());
+    if (videoUrl) {
+      episodes.push({
+        episode:   isNaN(num) ? episodes.length + 1 : num,
+        label,
+        videoUrl,
+        playerUrl: `${BASE}/player/player.html?file=${encodeURIComponent(videoUrl)}`,
+      });
+    }
+  });
+
+  // ── Video quality sources (movies) ──
+  const videoSources = [];
+  $('.fs-player__tab[data-url]').each((_, el) => {
+    const videoUrl = $(el).attr('data-url');
+    const quality  = $(el).attr('data-name') || $(el).text().trim();
+    const isDefault = $(el).hasClass('active');
+    if (videoUrl) {
+      videoSources.push({
+        quality,
+        videoUrl,
+        playerUrl: `${BASE}/player/player.html?file=${encodeURIComponent(videoUrl)}`,
+        isDefault,
+      });
+    }
+  });
+
+  // ── Screenshots ──
+  const screenshots = [];
+  $('.fs-screenshots__item').each((_, el) => {
+    const full  = $(el).attr('href');
+    const thumb = $(el).find('img').attr('src');
+    screenshots.push({
+      full:  full  ? absUrl(full)  : null,
+      thumb: thumb ? absUrl(thumb) : null,
+    });
+  });
+
+  // ── Related content ──
+  const relatedHtml = `<div>${$('.fs-related').html() || ''}</div>`;
+  const related = parseCards(relatedHtml).slice(0, 12);
+
+  // ── Player src ──
+  let playerSrc = $('iframe[src*="//"]').first().attr('src')
+    || $('iframe[data-src*="//"]').first().attr('data-src')
+    || null;
+
+  if (!playerSrc) {
+    if (videoSources.length > 0) {
+      const def = videoSources.find(s => s.isDefault) || videoSources[0];
+      playerSrc = def.playerUrl;
+    } else if (episodes.length > 0) {
+      playerSrc = episodes[0].playerUrl;
+    }
+  }
+
+  const isSerial = episodes.length > 0;
+
+  const result = {
+    contentId,
     title,
     description,
-    thumbnail: thumbnail?.startsWith('http') ? thumbnail : thumbnail ? `${BASE}${thumbnail}` : null,
-    year: yearText ? parseInt(yearText) || null : null,
-    rating: parseInt(ratingRaw) || 0,
-    genres: [...new Set(genres)],
-    cast: [...new Set(cast)].slice(0, 20),
-    qualities: [...new Set(qualities)],
+    thumbnail: absUrl(thumbnail),
+    year:      yearText ? parseInt(yearText) || null : null,
+    likes,
+    dislikes,
+    genres:   [...new Set(genres)],
+    cast:     [...new Set(cast)].slice(0, 20),
     country,
     director,
     duration,
+    isSerial,
+    ...(isSerial  ? { episodes }     : {}),
+    ...(!isSerial ? { videoSources } : {}),
+    screenshots,
+    related,
     playerSrc,
     url,
   };
+
+  cacheSet(key, result, 10 * 60 * 1000); // 10 min for detail pages
+  return result;
 }
+
+// ─── Video URL check ──────────────────────────────────────────────────────────
+
+async function checkVideoUrl(videoUrl) {
+  try {
+    const response = await axios.head(videoUrl, {
+      timeout: 8000,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-0' },
+      maxRedirects: 5,
+    });
+    return {
+      accessible:    true,
+      status:        response.status,
+      contentType:   response.headers['content-type'] || null,
+      contentLength: response.headers['content-length']
+        ? parseInt(response.headers['content-length'])
+        : null,
+      acceptRanges: response.headers['accept-ranges'] || null,
+    };
+  } catch (err) {
+    return { accessible: false, status: err.response?.status || 0, error: err.message };
+  }
+}
+
+// ─── Static lists ─────────────────────────────────────────────────────────────
 
 function getCategoryList() {
   return Object.keys(CATEGORIES).map((slug) => ({
@@ -264,4 +461,9 @@ function getGenreList() {
   }));
 }
 
-module.exports = { getLatest, getCategory, getGenre, getYear, search, getDetail, getCategoryList, getGenreList };
+module.exports = {
+  getLatest, getCategory, getGenre, getYear,
+  getCountry, getActor, getDirector,
+  search, getHome, getDetail, checkVideoUrl,
+  getCategoryList, getGenreList,
+};

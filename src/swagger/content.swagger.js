@@ -31,7 +31,7 @@ module.exports = {
                         properties: {
                           slug: { type: 'string' },
                           path: { type: 'string' },
-                          url: { type: 'string' },
+                          url:  { type: 'string' },
                         },
                       },
                     },
@@ -43,6 +43,7 @@ module.exports = {
         },
       },
     },
+
     '/contents/genres': {
       get: {
         tags: ['Contents'],
@@ -61,7 +62,7 @@ module.exports = {
                         type: 'object',
                         properties: {
                           slug: { type: 'string' },
-                          url: { type: 'string' },
+                          url:  { type: 'string' },
                         },
                       },
                     },
@@ -73,10 +74,38 @@ module.exports = {
         },
       },
     },
+
+    '/contents/home': {
+      get: {
+        tags: ['Contents'],
+        summary: 'Bosh sahifa — barcha bo\'limlar (parallel, keshli)',
+        description: 'Bir so\'rovda latest, seriallar, tarjima kinolar va multfilmlarning dastlabki 12 tasini qaytaradi.',
+        responses: {
+          200: {
+            description: 'Bosh sahifa ma\'lumotlari',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    latest:   { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
+                    serials:  { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
+                    tarjima:  { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
+                    multfilm: { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
+                  },
+                },
+              },
+            },
+          },
+          502: { $ref: '#/components/responses/BadGateway' },
+        },
+      },
+    },
+
     '/contents/latest': {
       get: {
         tags: ['Contents'],
-        summary: 'Asosiy sahifa — eng yangi kontentlar',
+        summary: 'Eng yangi kontentlar',
         parameters: [pageParam],
         responses: {
           200: {
@@ -87,12 +116,17 @@ module.exports = {
         },
       },
     },
+
     '/contents/search': {
       get: {
         tags: ['Contents'],
         summary: 'Kontent qidirish',
         parameters: [
-          { in: 'query', name: 'q', required: true, schema: { type: 'string', minLength: 2 }, description: 'Qidiruv so\'zi' },
+          {
+            in: 'query', name: 'q', required: true,
+            schema: { type: 'string', minLength: 2 },
+            description: 'Qidiruv so\'zi (kamida 2 belgi)',
+          },
           pageParam,
         ],
         responses: {
@@ -105,16 +139,17 @@ module.exports = {
         },
       },
     },
+
     '/contents/detail': {
       get: {
         tags: ['Contents'],
-        summary: 'Kontent detail — to\'liq ma\'lumot + video player URL',
+        summary: 'Kontent detail — epizodlar, video sifati, skrinshot, o\'xshashlar',
         parameters: [
           {
             in: 'query', name: 'url', required: true,
             schema: { type: 'string' },
             description: 'asilmedia.org kontent URL',
-            example: 'https://asilmedia.org/18212-aybdorlik.html',
+            example: 'https://asilmedia.org/17987-arosat-oramizda.html',
           },
         ],
         responses: {
@@ -127,6 +162,43 @@ module.exports = {
         },
       },
     },
+
+    '/contents/check-video': {
+      get: {
+        tags: ['Contents'],
+        summary: 'Video URL mavjudligini tekshirish (HEAD so\'rovi)',
+        parameters: [
+          {
+            in: 'query', name: 'url', required: true,
+            schema: { type: 'string' },
+            description: 'MP4 yoki boshqa video URL',
+            example: 'https://fayllar1.ru/37/Seriallar/Arosat/Arosat%201-1-qism.mp4',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Video meta ma\'lumotlari',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    accessible:    { type: 'boolean' },
+                    status:        { type: 'integer' },
+                    contentType:   { type: 'string', nullable: true },
+                    contentLength: { type: 'integer', nullable: true },
+                    acceptRanges:  { type: 'string', nullable: true },
+                    error:         { type: 'string', nullable: true },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: '#/components/responses/BadRequest' },
+        },
+      },
+    },
+
     '/contents/category/{category}': {
       get: {
         tags: ['Contents'],
@@ -135,7 +207,6 @@ module.exports = {
           {
             in: 'path', name: 'category', required: true,
             schema: { type: 'string', enum: categoryEnum },
-            description: 'Kategoriya slug',
           },
           pageParam,
         ],
@@ -149,6 +220,7 @@ module.exports = {
         },
       },
     },
+
     '/contents/genre/{genre}': {
       get: {
         tags: ['Contents'],
@@ -158,7 +230,7 @@ module.exports = {
             in: 'path', name: 'genre', required: true,
             schema: { type: 'string' },
             example: 'drama',
-            description: 'boevik, komediya, drama, melodrama, triller, ...',
+            description: 'boevik | komediya | drama | melodrama | triller | ...',
           },
           pageParam,
         ],
@@ -171,6 +243,7 @@ module.exports = {
         },
       },
     },
+
     '/contents/year/{year}': {
       get: {
         tags: ['Contents'],
@@ -179,7 +252,74 @@ module.exports = {
           {
             in: 'path', name: 'year', required: true,
             schema: { type: 'integer' },
-            example: 2023,
+            example: 2025,
+          },
+          pageParam,
+        ],
+        responses: {
+          200: {
+            description: 'Kontentlar',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
+          },
+          502: { $ref: '#/components/responses/BadGateway' },
+        },
+      },
+    },
+
+    '/contents/country/{country}': {
+      get: {
+        tags: ['Contents'],
+        summary: 'Mamlakat bo\'yicha kontentlar',
+        parameters: [
+          {
+            in: 'path', name: 'country', required: true,
+            schema: { type: 'string' },
+            example: 'турция',
+            description: 'Mamlakat nomi (masalan: турция, корея, хиндистон)',
+          },
+          pageParam,
+        ],
+        responses: {
+          200: {
+            description: 'Kontentlar',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
+          },
+          502: { $ref: '#/components/responses/BadGateway' },
+        },
+      },
+    },
+
+    '/contents/actor/{actor}': {
+      get: {
+        tags: ['Contents'],
+        summary: 'Aktyor bo\'yicha kontentlar',
+        parameters: [
+          {
+            in: 'path', name: 'actor', required: true,
+            schema: { type: 'string' },
+            example: 'Miray Dogan',
+          },
+          pageParam,
+        ],
+        responses: {
+          200: {
+            description: 'Kontentlar',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
+          },
+          502: { $ref: '#/components/responses/BadGateway' },
+        },
+      },
+    },
+
+    '/contents/director/{director}': {
+      get: {
+        tags: ['Contents'],
+        summary: 'Rejissyor bo\'yicha kontentlar',
+        parameters: [
+          {
+            in: 'path', name: 'director', required: true,
+            schema: { type: 'string' },
+            example: 'Oguzhan Denizhan',
           },
           pageParam,
         ],

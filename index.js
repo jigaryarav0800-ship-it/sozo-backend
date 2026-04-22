@@ -24,6 +24,11 @@ app.use('/api/contents', contentRoutes);
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use((err, req, res, next) => {
+  // MongoDB duplicate key error
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || {})[0] || 'field';
+    return res.status(409).json({ message: `${field} already in use` });
+  }
   const status = err.status || 500;
   res.status(status).json({ message: err.message || 'Internal server error' });
 });

@@ -5,5 +5,4 @@ dist/
 .claude/
 serviceAccount.json
 *.json.bak
-.idea/
 .DS_Store
