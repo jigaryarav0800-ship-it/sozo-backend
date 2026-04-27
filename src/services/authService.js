@@ -67,10 +67,12 @@ async function getFavorites(userId) {
   return user.favorites;
 }
 
-async function addFavorite(userId, contentUrl) {
+async function addFavorite(userId, { provider, contentUrl, title = null, thumbnail = null }) {
+  // Remove existing entry by contentUrl (dedup), then push new
+  await User.updateOne({ _id: userId }, { $pull: { favorites: { contentUrl } } });
   return User.findByIdAndUpdate(
     userId,
-    { $addToSet: { favorites: contentUrl } },
+    { $push: { favorites: { provider, contentUrl, title, thumbnail } } },
     { new: true }
   ).select('-password');
 }
@@ -78,7 +80,7 @@ async function addFavorite(userId, contentUrl) {
 async function removeFavorite(userId, contentUrl) {
   return User.findByIdAndUpdate(
     userId,
-    { $pull: { favorites: contentUrl } },
+    { $pull: { favorites: { contentUrl } } },
     { new: true }
   ).select('-password');
 }
@@ -89,8 +91,7 @@ async function getHistory(userId) {
   return user.watchHistory;
 }
 
-async function addToHistory(userId, { contentUrl, title = null, thumbnail = null }) {
-  // Remove existing entry so we can push it to the front (most recent first)
+async function addToHistory(userId, { provider, contentUrl, title = null, thumbnail = null }) {
   await User.updateOne({ _id: userId }, { $pull: { watchHistory: { contentUrl } } });
 
   return User.findByIdAndUpdate(
@@ -98,7 +99,7 @@ async function addToHistory(userId, { contentUrl, title = null, thumbnail = null
     {
       $push: {
         watchHistory: {
-          $each: [{ contentUrl, title, thumbnail, watchedAt: new Date() }],
+          $each: [{ provider, contentUrl, title, thumbnail, watchedAt: new Date() }],
           $position: 0,
           $slice: HISTORY_LIMIT,
         },
@@ -135,12 +136,10 @@ async function loginWithGoogle(idToken) {
   const { uid, email, name, picture } = decoded;
   if (!email) throw Object.assign(new Error('Google account has no email'), { status: 400 });
 
-  // Find by firebase UID first, then fall back to email
   let user = await User.findOne({ firebaseUid: uid });
   if (!user) user = await User.findOne({ email });
 
   if (user) {
-    // Update provider info if this is the first Google sign-in on an existing account
     if (!user.firebaseUid) {
       user.firebaseUid = uid;
       user.authProvider = 'google';
@@ -148,7 +147,6 @@ async function loginWithGoogle(idToken) {
       await user.save();
     }
   } else {
-    // New user — generate a unique username from display name or email prefix
     let baseUsername = (name || email.split('@')[0])
       .replace(/[^a-zA-Z0-9_]/g, '_')
       .slice(0, 20);

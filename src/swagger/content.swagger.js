@@ -9,13 +9,42 @@ const pageParam = {
   description: 'Sahifa raqami',
 };
 
+const providerParam = {
+  in: 'query', name: 'provider',
+  schema: { type: 'string', default: 'asilmedia', example: 'asilmedia' },
+  description: 'Kontent manbai (default: asilmedia)',
+};
+
 module.exports = {
-  tags: [{ name: 'Contents', description: 'Asilmedia.org real-time scraping' }],
+  tags: [{ name: 'Contents', description: 'Multi-provider real-time kontent' }],
   paths: {
+    '/contents/providers': {
+      get: {
+        tags: ['Contents'],
+        summary: 'Mavjud providerlar ro\'yxati',
+        responses: {
+          200: {
+            description: 'Providerlar',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    items: { type: 'array', items: { type: 'string' }, example: ['asilmedia'] },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
     '/contents/categories': {
       get: {
         tags: ['Contents'],
-        summary: 'Barcha kategoriyalar ro\'yxati',
+        summary: 'Provider kategoriyalar ro\'yxati',
+        parameters: [providerParam],
         responses: {
           200: {
             description: 'Kategoriyalar',
@@ -29,9 +58,10 @@ module.exports = {
                       items: {
                         type: 'object',
                         properties: {
-                          slug: { type: 'string' },
-                          path: { type: 'string' },
-                          url:  { type: 'string' },
+                          provider: { type: 'string', example: 'asilmedia' },
+                          slug:     { type: 'string' },
+                          path:     { type: 'string' },
+                          url:      { type: 'string' },
                         },
                       },
                     },
@@ -40,6 +70,7 @@ module.exports = {
               },
             },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
         },
       },
     },
@@ -47,7 +78,8 @@ module.exports = {
     '/contents/genres': {
       get: {
         tags: ['Contents'],
-        summary: 'Barcha janrlar ro\'yxati',
+        summary: 'Provider janrlar ro\'yxati',
+        parameters: [providerParam],
         responses: {
           200: {
             description: 'Janrlar',
@@ -61,8 +93,9 @@ module.exports = {
                       items: {
                         type: 'object',
                         properties: {
-                          slug: { type: 'string' },
-                          url:  { type: 'string' },
+                          provider: { type: 'string', example: 'asilmedia' },
+                          slug:     { type: 'string' },
+                          url:      { type: 'string' },
                         },
                       },
                     },
@@ -71,6 +104,7 @@ module.exports = {
               },
             },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
         },
       },
     },
@@ -80,6 +114,7 @@ module.exports = {
         tags: ['Contents'],
         summary: 'Bosh sahifa — barcha bo\'limlar (parallel, keshli)',
         description: 'Bir so\'rovda latest, seriallar, tarjima kinolar va multfilmlarning dastlabki 12 tasini qaytaradi.',
+        parameters: [providerParam],
         responses: {
           200: {
             description: 'Bosh sahifa ma\'lumotlari',
@@ -88,15 +123,15 @@ module.exports = {
                 schema: {
                   type: 'object',
                   properties: {
-                    latest:   { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
-                    serials:  { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
-                    tarjima:  { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
-                    multfilm: { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
+                    provider: { type: 'string', example: 'asilmedia' },
+                    banner:   { type: 'array', items: { $ref: '#/components/schemas/BannerCard' }, description: 'Hero slider — ContentCard + genres' },
+                    sections: { type: 'array', items: { $ref: '#/components/schemas/HomeSection' }, description: 'Har provider o\'z tartibi va labelini belgilaydi' },
                   },
                 },
               },
             },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
           502: { $ref: '#/components/responses/BadGateway' },
         },
       },
@@ -106,12 +141,13 @@ module.exports = {
       get: {
         tags: ['Contents'],
         summary: 'Eng yangi kontentlar',
-        parameters: [pageParam],
+        parameters: [providerParam, pageParam],
         responses: {
           200: {
             description: 'Kontentlar',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
           502: { $ref: '#/components/responses/BadGateway' },
         },
       },
@@ -122,6 +158,7 @@ module.exports = {
         tags: ['Contents'],
         summary: 'Kontent qidirish',
         parameters: [
+          providerParam,
           {
             in: 'query', name: 'q', required: true,
             schema: { type: 'string', minLength: 2 },
@@ -144,11 +181,12 @@ module.exports = {
       get: {
         tags: ['Contents'],
         summary: 'Kontent detail — epizodlar, video sifati, skrinshot, o\'xshashlar',
+        description: 'Provider `url` dan avtomatik aniqlanadi.',
         parameters: [
           {
             in: 'query', name: 'url', required: true,
             schema: { type: 'string' },
-            description: 'asilmedia.org kontent URL',
+            description: 'Kontent URL (istalgan provider)',
             example: 'https://asilmedia.org/17987-arosat-oramizda.html',
           },
         ],
@@ -167,6 +205,7 @@ module.exports = {
       get: {
         tags: ['Contents'],
         summary: 'Video URL mavjudligini tekshirish (HEAD so\'rovi)',
+        description: 'Provider `url` dan avtomatik aniqlanadi.',
         parameters: [
           {
             in: 'query', name: 'url', required: true,
@@ -204,6 +243,7 @@ module.exports = {
         tags: ['Contents'],
         summary: 'Kategoriya bo\'yicha kontentlar',
         parameters: [
+          providerParam,
           {
             in: 'path', name: 'category', required: true,
             schema: { type: 'string', enum: categoryEnum },
@@ -226,6 +266,7 @@ module.exports = {
         tags: ['Contents'],
         summary: 'Janr bo\'yicha kontentlar',
         parameters: [
+          providerParam,
           {
             in: 'path', name: 'genre', required: true,
             schema: { type: 'string' },
@@ -239,6 +280,7 @@ module.exports = {
             description: 'Kontentlar',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
           502: { $ref: '#/components/responses/BadGateway' },
         },
       },
@@ -249,6 +291,7 @@ module.exports = {
         tags: ['Contents'],
         summary: 'Yil bo\'yicha kontentlar',
         parameters: [
+          providerParam,
           {
             in: 'path', name: 'year', required: true,
             schema: { type: 'integer' },
@@ -261,6 +304,7 @@ module.exports = {
             description: 'Kontentlar',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
           502: { $ref: '#/components/responses/BadGateway' },
         },
       },
@@ -271,6 +315,7 @@ module.exports = {
         tags: ['Contents'],
         summary: 'Mamlakat bo\'yicha kontentlar',
         parameters: [
+          providerParam,
           {
             in: 'path', name: 'country', required: true,
             schema: { type: 'string' },
@@ -284,6 +329,7 @@ module.exports = {
             description: 'Kontentlar',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
           502: { $ref: '#/components/responses/BadGateway' },
         },
       },
@@ -294,6 +340,7 @@ module.exports = {
         tags: ['Contents'],
         summary: 'Aktyor bo\'yicha kontentlar',
         parameters: [
+          providerParam,
           {
             in: 'path', name: 'actor', required: true,
             schema: { type: 'string' },
@@ -306,6 +353,7 @@ module.exports = {
             description: 'Kontentlar',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
           502: { $ref: '#/components/responses/BadGateway' },
         },
       },
@@ -316,6 +364,7 @@ module.exports = {
         tags: ['Contents'],
         summary: 'Rejissyor bo\'yicha kontentlar',
         parameters: [
+          providerParam,
           {
             in: 'path', name: 'director', required: true,
             schema: { type: 'string' },
@@ -328,6 +377,7 @@ module.exports = {
             description: 'Kontentlar',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentList' } } },
           },
+          400: { $ref: '#/components/responses/BadRequest' },
           502: { $ref: '#/components/responses/BadGateway' },
         },
       },

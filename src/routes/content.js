@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const c = require('../controllers/contentController');
 
+router.get('/providers',            c.getProviders);
 router.get('/categories',           c.getCategories);
 router.get('/genres',               c.getGenres);
 router.get('/home',                 c.getHome);

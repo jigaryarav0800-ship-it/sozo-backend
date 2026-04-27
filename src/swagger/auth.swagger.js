@@ -1,6 +1,17 @@
+const favoriteItemSchema = {
+  type: 'object',
+  properties: {
+    provider:   { type: 'string', example: 'asilmedia', description: 'Kontent manbai' },
+    contentUrl: { type: 'string', example: 'https://asilmedia.org/12345-film.html' },
+    title:      { type: 'string', nullable: true },
+    thumbnail:  { type: 'string', nullable: true },
+  },
+};
+
 const historyItemSchema = {
   type: 'object',
   properties: {
+    provider:   { type: 'string', example: 'asilmedia', description: 'Kontent manbai' },
     contentUrl: { type: 'string' },
     title:      { type: 'string', nullable: true },
     thumbnail:  { type: 'string', nullable: true },
@@ -157,12 +168,12 @@ module.exports = {
         security: [{ BearerAuth: [] }],
         responses: {
           200: {
-            description: 'Sevimli URL lar',
+            description: 'Sevimli kontentlar',
             content: {
               'application/json': {
                 schema: {
                   type: 'object',
-                  properties: { items: { type: 'array', items: { type: 'string' } } },
+                  properties: { items: { type: 'array', items: favoriteItemSchema } },
                 },
               },
             },
@@ -180,14 +191,20 @@ module.exports = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['url'],
-                properties: { url: { type: 'string', example: 'https://asilmedia.org/12345-film.html' } },
+                required: ['provider', 'contentUrl'],
+                properties: {
+                  provider:   { type: 'string', example: 'asilmedia', description: 'Kontent manbai' },
+                  contentUrl: { type: 'string', example: 'https://asilmedia.org/12345-film.html' },
+                  title:      { type: 'string', example: 'Film nomi', description: 'Ixtiyoriy' },
+                  thumbnail:  { type: 'string', example: 'https://...', description: 'Ixtiyoriy' },
+                },
               },
             },
           },
         },
         responses: {
           200: { description: 'Yangilangan foydalanuvchi' },
+          400: { $ref: '#/components/responses/BadRequest' },
           401: { $ref: '#/components/responses/Unauthorized' },
         },
       },
@@ -201,14 +218,17 @@ module.exports = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['url'],
-                properties: { url: { type: 'string' } },
+                required: ['contentUrl'],
+                properties: {
+                  contentUrl: { type: 'string', example: 'https://asilmedia.org/12345-film.html' },
+                },
               },
             },
           },
         },
         responses: {
           200: { description: 'Yangilangan foydalanuvchi' },
+          400: { $ref: '#/components/responses/BadRequest' },
           401: { $ref: '#/components/responses/Unauthorized' },
         },
       },
@@ -244,11 +264,12 @@ module.exports = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['url'],
+                required: ['provider', 'contentUrl'],
                 properties: {
-                  url:       { type: 'string', example: 'https://asilmedia.org/12345-film.html' },
-                  title:     { type: 'string', example: 'Film nomi', description: 'Ixtiyoriy' },
-                  thumbnail: { type: 'string', example: 'https://...', description: 'Ixtiyoriy' },
+                  provider:   { type: 'string', example: 'asilmedia', description: 'Kontent manbai' },
+                  contentUrl: { type: 'string', example: 'https://asilmedia.org/12345-film.html' },
+                  title:      { type: 'string', example: 'Film nomi', description: 'Ixtiyoriy' },
+                  thumbnail:  { type: 'string', example: 'https://...', description: 'Ixtiyoriy' },
                 },
               },
             },
@@ -256,6 +277,7 @@ module.exports = {
         },
         responses: {
           200: { description: 'Yangilangan foydalanuvchi' },
+          400: { $ref: '#/components/responses/BadRequest' },
           401: { $ref: '#/components/responses/Unauthorized' },
         },
       },
@@ -281,14 +303,17 @@ module.exports = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['url'],
-                properties: { url: { type: 'string' } },
+                required: ['contentUrl'],
+                properties: {
+                  contentUrl: { type: 'string', example: 'https://asilmedia.org/12345-film.html' },
+                },
               },
             },
           },
         },
         responses: {
           200: { description: 'O\'chirildi' },
+          400: { $ref: '#/components/responses/BadRequest' },
           401: { $ref: '#/components/responses/Unauthorized' },
         },
       },

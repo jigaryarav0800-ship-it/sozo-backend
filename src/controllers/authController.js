@@ -34,16 +34,18 @@ async function getFavorites(req, res) {
 }
 
 async function addFavorite(req, res) {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ message: 'url is required' });
-  const user = await authService.addFavorite(req.user.id, url);
+  const { provider, contentUrl, title, thumbnail } = req.body;
+  if (!provider || !contentUrl) {
+    return res.status(400).json({ message: 'provider and contentUrl are required' });
+  }
+  const user = await authService.addFavorite(req.user.id, { provider, contentUrl, title, thumbnail });
   res.json({ user });
 }
 
 async function removeFavorite(req, res) {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ message: 'url is required' });
-  const user = await authService.removeFavorite(req.user.id, url);
+  const { contentUrl } = req.body;
+  if (!contentUrl) return res.status(400).json({ message: 'contentUrl is required' });
+  const user = await authService.removeFavorite(req.user.id, contentUrl);
   res.json({ user });
 }
 
@@ -53,9 +55,11 @@ async function getHistory(req, res) {
 }
 
 async function addToHistory(req, res) {
-  const { url, title, thumbnail } = req.body;
-  if (!url) return res.status(400).json({ message: 'url is required' });
-  const user = await authService.addToHistory(req.user.id, { contentUrl: url, title, thumbnail });
+  const { provider, contentUrl, title, thumbnail } = req.body;
+  if (!provider || !contentUrl) {
+    return res.status(400).json({ message: 'provider and contentUrl are required' });
+  }
+  const user = await authService.addToHistory(req.user.id, { provider, contentUrl, title, thumbnail });
   res.json({ user });
 }
 
@@ -65,9 +69,9 @@ async function clearHistory(req, res) {
 }
 
 async function removeFromHistory(req, res) {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ message: 'url is required' });
-  const user = await authService.removeFromHistory(req.user.id, url);
+  const { contentUrl } = req.body;
+  if (!contentUrl) return res.status(400).json({ message: 'contentUrl is required' });
+  const user = await authService.removeFromHistory(req.user.id, contentUrl);
   res.json({ user });
 }
 
