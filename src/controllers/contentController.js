@@ -1,4 +1,4 @@
-const { getProvider, detectProvider, listProviders } = require('../providers');
+const { getProvider, detectProvider, listProviders, normalizeDetail } = require('../providers');
 
 async function getLatest(req, res) {
   const { page = 1, provider = 'asilmedia' } = req.query;
@@ -61,8 +61,8 @@ async function getDetail(req, res) {
   const { url } = req.query;
   if (!url) return res.status(400).json({ message: 'url parametri majburiy' });
   const providerName = detectProvider(url);
-  const result = await getProvider(providerName).getDetail(url);
-  res.json(result);
+  const raw = await getProvider(providerName).getDetail(url);
+  res.json(normalizeDetail(raw, providerName));
 }
 
 async function checkVideo(req, res) {
