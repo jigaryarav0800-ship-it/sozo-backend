@@ -71,6 +71,12 @@ function absUrl(src) {
     return src.startsWith('http') ? src : `${BASE}${src}`;
 }
 
+function parseTitle(raw) {
+    if (!raw) return '';
+    if (raw.includes(' / ')) return raw.split(' / ')[0].trim();
+    return raw.split(' ').slice(0, 4).join(' ').trim();
+}
+
 function unwrapPlayerUrl(src) {
     if (!src) return null;
     if (!src.includes('player.html')) return src;
@@ -127,7 +133,7 @@ function parseCards(html) {
         const imgSrc = imgEl.attr('src') || imgEl.attr('data-src') || '';
 
         const rawTitle = $el.find('.card__title').clone().children().remove().end().text().trim() || imgEl.attr('alt') || $link.attr('title') || '';
-        const title = rawTitle.split(' / ')[0].trim();
+        const title = parseTitle(rawTitle);
 
         const ratingRaw = $el.find('.ratingtypeplusminus').text().trim();
 
@@ -177,7 +183,7 @@ function parseBanner(html) {
 
         const imgSrc = $el.find('img.slider-card__img').attr('src') || '';
         const rawTitle = $el.find('h3.slider-card__title').text().trim();
-        const title = rawTitle.split(' / ')[0].trim();
+        const title = parseTitle(rawTitle);
         const yearText = $el.find('.slider-card__year a').text().trim();
         const ratingRaw = $el.find('.ratingtypeplusminus').text().trim();
         const genreText = $el.find('.slider-card__genre').text().trim();
@@ -352,12 +358,11 @@ async function getHome() {
         provider: PROVIDER,
         banner: parseBanner(homeHtml),
         sections: [
-            {key: 'latest', label: 'Yangilar', items: parseCards(homeHtml).slice(0, 12)},
-            {
-                key: 'serials', label: 'Seriallar', items: serialsResult.items.slice(0, 12)
-            }, {key: 'tarjima', label: 'Tarjima kinolar', items: tarjimaResult.items.slice(0, 12)}, {
-                key: 'multfilm', label: 'Multfilmlar', items: multfilmResult.items.slice(0, 12)
-            },],
+            { key: 'latest',   label: 'Yangilar',       viewAll: { type: 'latest' },                           items: parseCards(homeHtml).slice(0, 12) },
+            { key: 'serials',  label: 'Seriallar',       viewAll: { type: 'category', slug: 'seriallar' },      items: serialsResult.items.slice(0, 12) },
+            { key: 'tarjima',  label: 'Tarjima kinolar', viewAll: { type: 'category', slug: 'tarjima-kinolar' }, items: tarjimaResult.items.slice(0, 12) },
+            { key: 'multfilm', label: 'Multfilmlar',     viewAll: { type: 'category', slug: 'multfilmlar' },    items: multfilmResult.items.slice(0, 12) },
+        ],
     };
 
     cacheSet('home', result, 5 * 60 * 1000);
@@ -456,7 +461,7 @@ async function getDetail(url) {
         provider: PROVIDER,
         contentId,
         contentUrl: url,
-        title: rawTitle.split(' / ')[0].trim(),
+        title: parseTitle(rawTitle),
         description,
         thumbnail: absUrl(thumbnail),
         year: yearText ? parseInt(yearText) || null : null,
