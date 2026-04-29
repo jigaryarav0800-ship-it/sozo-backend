@@ -5,6 +5,23 @@ const _providers = {
     // idub: require('./idub'),
 };
 
+const _meta = {
+    asilmedia: {
+        id:          'asilmedia',
+        name:        'AsilMedia',
+        image:       'https://yt3.googleusercontent.com/-RIlt8gzCSWUh-bRzUGqWJIioEAl5BygNWNGp6Q-f18avpxgWufo9JLcGRA1WSi6XF_3MxmnPQ=s900-c-k-c0x00ffffff-no-rj',
+        url:         'https://asilmedia.org',
+        description: "O'zbek tilidagi kino va seriallar platformasi",
+    },
+    // idub: {
+    //     id:          'idub',
+    //     name:        'iDub',
+    //     image:       null,
+    //     url:         'https://idub.uz',
+    //     description: null,
+    // },
+};
+
 function getProvider(name) {
     const p = _providers[name];
     if (!p) {
@@ -28,7 +45,18 @@ function detectProvider(contentUrl) {
 }
 
 function listProviders() {
-    return Object.keys(_providers);
+    return Object.keys(_providers).map(id => {
+        const p = _providers[id];
+        const m = _meta[id] ?? {};
+        return {
+            id,
+            name:        m.name        ?? id,
+            image:       m.image       ?? null,
+            url:         m.url         ?? null,
+            description: m.description ?? null,
+            domains:     p.domains     ?? [],
+        };
+    });
 }
 
 function normalizeDetail(raw, providerName) {

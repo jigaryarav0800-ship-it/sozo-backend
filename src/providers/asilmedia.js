@@ -6,14 +6,30 @@ const BASE = 'https://asilmedia.org';
 
 const CATEGORIES = {
     'tarjima-kinolar': 'films/tarjima_kinolar',
-    'xorij-kinolar': 'films/xorij_kinolar',
-    'rus-kinolar': 'films/rus_kinolar',
+    'rus-kinolar': 'films/rusfilm',
     'seriallar': 'films/serial',
     'multfilmlar': 'films/multfilmlar_multiklar',
-    'treylerlar': 'treylerlar',
 };
 
-const GENRES = ['boevik', 'komediya', 'drama', 'melodrama', 'triller', 'fantastika', 'kriminal', 'detektiv', 'anime', 'multfilm', 'sarguzasht', 'ujas', 'biografik', 'tarixiy', 'musiqiy',];
+const GENRES = ['boevik', 'komediya', 'drama', 'melodrama', 'triller', 'fantastika', 'kriminal', 'detektiv', 'anime', 'multfilm', 'sarguzasht', 'ужасы', 'biografik', 'tarixiy', 'musiqiy'];
+
+const GENRE_IMAGES = {
+    boevik: 'https://image.tmdb.org/t/p/w276_and_h350_face/zfbjgQE1uSd9wiPTX4VzsLi0rGG.jpg',
+    komediya: 'https://image.tmdb.org/t/p/w276_and_h350_face/9FeYBZDvNTh4ZmweekJvwyIxIiL.jpg',
+    drama: 'https://image.tmdb.org/t/p/w276_and_h350_face/2u7zbn8EudG6kLlBzUYqP8RyFU4.jpg',
+    melodrama: 'https://image.tmdb.org/t/p/w276_and_h350_face/foGkPxpw9h8zln81j63mix5B7m8.jpg',
+    triller: 'https://image.tmdb.org/t/p/w276_and_h350_face/fptnZJbLzKUHeNlYrAynbyoL5YJ.jpg',
+    fantastika: 'https://image.tmdb.org/t/p/w276_and_h350_face/9BBTo63ANSmhC4e6r62OJFuK2GL.jpg',
+    kriminal: 'https://image.tmdb.org/t/p/w276_and_h350_face/jJJQ1PPXUEchqyZ9YyWzgSNU39Z.jpg',
+    detektiv: 'https://image.tmdb.org/t/p/w276_and_h350_face/8rvLEmdI4gLrMO1rLqbNdnNcPFE.jpg',
+    anime: 'https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/bx1535-kUgkcrfOrkUM.jpg',
+    multfilm: 'https://image.tmdb.org/t/p/w276_and_h350_face/b3NhrYsr1X5r7zgjJDRMNOqXZS9.jpg',
+    sarguzasht: 'https://image.tmdb.org/t/p/w276_and_h350_face/efC1n5QU7newjfgqyOPmsnwSky3.jpg',
+    ужасы: 'https://image.tmdb.org/t/p/w276_and_h350_face/8VyTWJrNEyV2MTWvniDVp0MpOAe.jpg',
+    biografik: 'https://image.tmdb.org/t/p/w276_and_h350_face/9mDlwBdCu501924dXnzz2Gtc8XI.jpg',
+    tarixiy: 'https://i.guim.co.uk/img/media/cf05d3e7596f8cbac09b66810e73979544077cb3/0_37_2992_1796/master/2992.jpg?width=1900&dpr=1&s=none&crop=none',
+    musiqiy: 'https://image.tmdb.org/t/p/w276_and_h350_face/jNG7pl0DkN1nzxnbZj4MCGf2VEG.jpg',
+};
 
 const http = axios.create({
     baseURL: BASE, timeout: 20000, headers: {
@@ -358,10 +374,25 @@ async function getHome() {
         provider: PROVIDER,
         banner: parseBanner(homeHtml),
         sections: [
-            { key: 'latest',   label: 'Yangilar',       viewAll: { type: 'latest' },                           items: parseCards(homeHtml).slice(0, 12) },
-            { key: 'serials',  label: 'Seriallar',       viewAll: { type: 'category', slug: 'seriallar' },      items: serialsResult.items.slice(0, 12) },
-            { key: 'tarjima',  label: 'Tarjima kinolar', viewAll: { type: 'category', slug: 'tarjima-kinolar' }, items: tarjimaResult.items.slice(0, 12) },
-            { key: 'multfilm', label: 'Multfilmlar',     viewAll: { type: 'category', slug: 'multfilmlar' },    items: multfilmResult.items.slice(0, 12) },
+            {key: 'latest', label: 'Yangilar', viewAll: {type: 'latest'}, items: parseCards(homeHtml).slice(0, 12)},
+            {
+                key: 'serials',
+                label: 'Seriallar',
+                viewAll: {type: 'category', slug: 'seriallar'},
+                items: serialsResult.items.slice(0, 12)
+            },
+            {
+                key: 'tarjima',
+                label: 'Tarjima kinolar',
+                viewAll: {type: 'category', slug: 'tarjima-kinolar'},
+                items: tarjimaResult.items.slice(0, 12)
+            },
+            {
+                key: 'multfilm',
+                label: 'Multfilmlar',
+                viewAll: {type: 'category', slug: 'multfilmlar'},
+                items: multfilmResult.items.slice(0, 12)
+            },
         ],
     };
 
@@ -509,7 +540,10 @@ function getCategoryList() {
 
 function getGenreList() {
     return GENRES.map(genre => ({
-        provider: PROVIDER, slug: genre, url: `${BASE}/xfsearch/genre/${genre}/`,
+        provider: PROVIDER,
+        slug: genre,
+        url: `${BASE}/xfsearch/genre/${genre}/`,
+        image: GENRE_IMAGES[genre] || null,
     }));
 }
 

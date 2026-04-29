@@ -94,8 +94,9 @@ module.exports = {
                         type: 'object',
                         properties: {
                           provider: { type: 'string', example: 'asilmedia' },
-                          slug:     { type: 'string' },
-                          url:      { type: 'string' },
+                          slug:     { type: 'string', example: 'drama' },
+                          url:      { type: 'string', example: 'https://asilmedia.org/xfsearch/genre/drama/' },
+                          image:    { type: 'string', nullable: true, example: 'https://placehold.co/400x225/2d3561/ffffff?text=Drama' },
                         },
                       },
                     },
