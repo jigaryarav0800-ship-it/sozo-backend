@@ -4,8 +4,9 @@ const idub      = require('./idub');
 const mochitv   = require('./mochitv');
 const uzmovi    = require('./uzmovi');
 const vidapi    = require('./vidapi');
+const animeav1  = require('./animeav1');
 
-const _providers = { vidapi, asilmedia, anikai, idub, mochitv, uzmovi };
+const _providers = { vidapi, asilmedia, anikai, idub, mochitv, uzmovi, animeav1 };
 
 const _meta = {
     vidapi: {
@@ -14,6 +15,13 @@ const _meta = {
         image:       'https://vidapi.ru/favicon.ico',
         url:         'https://vidapi.ru',
         description: 'Universal TMDB/IMDb-backed catalog — VidAPI (vaplayer.ru) iframe playback',
+    },
+    animeav1: {
+        id:          'animeav1',
+        name:        'AnimeAV1',
+        image:       'https://animeav1.com/favicon.png',
+        url:         'https://animeav1.com',
+        description: 'Anime catalog, episodios recientes, HLS player and mirror embeds',
     },
     asilmedia: {
         id:          'asilmedia',
@@ -228,6 +236,9 @@ function normalizeMedia(raw, providerName) {
             videoUrl:  s.videoUrl,
             isDefault: Boolean(s.isDefault),
             ...(s.host ? { host: s.host } : {}),
+            ...(s.type ? { type: s.type } : {}),
+            ...(s.headers ? { headers: s.headers } : {}),
+            ...(s.embed ? { embed: s.embed } : {}),
           }))
         : (videoUrl ? [{ quality: 'auto', videoUrl, isDefault: true }] : []);
 

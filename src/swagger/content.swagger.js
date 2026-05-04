@@ -14,7 +14,7 @@ const providerParam = {
   schema: {
     type: 'string',
     default: 'asilmedia',
-    enum: ['asilmedia', 'anikai', 'idub', 'mochitv', 'uzmovi'],
+    enum: ['asilmedia', 'anikai', 'idub', 'mochitv', 'uzmovi', 'vidapi', 'animeav1'],
     example: 'asilmedia',
   },
   description: 'Kontent manbai (default: asilmedia)',
