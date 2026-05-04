@@ -5,8 +5,9 @@ const mochitv   = require('./mochitv');
 const uzmovi    = require('./uzmovi');
 const vidapi    = require('./vidapi');
 const animeav1  = require('./animeav1');
+const vidsrc    = require('./vidsrc');
 
-const _providers = { vidapi, asilmedia, anikai, idub, mochitv, uzmovi, animeav1 };
+const _providers = { vidapi, asilmedia, anikai, idub, mochitv, uzmovi, animeav1, vidsrc };
 
 const _meta = {
     vidapi: {
@@ -57,6 +58,13 @@ const _meta = {
         image:       'https://avatars.githubusercontent.com/u/106664405?s=200&v=4',
         url:         'https://uzmovi.tv',
         description: "O'zbek tilidagi onlayn kinoteatr — kinolar, seriallar, anime",
+    },
+    vidsrc: {
+        id:          'vidsrc',
+        name:        'VidSrc',
+        image:       'https://vidsrc.ru/favicon.ico',
+        url:         'https://vidsrc.ru',
+        description: 'TMDB/IMDb-based universal streaming — movies & TV series embed player',
     },
 };
 
