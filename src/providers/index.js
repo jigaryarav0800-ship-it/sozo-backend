@@ -3,19 +3,11 @@ const anikai    = require('./anikai');
 const idub      = require('./idub');
 const mochitv   = require('./mochitv');
 const uzmovi    = require('./uzmovi');
-const playimdb  = require('./playimdb');
 const vidapi    = require('./vidapi');
 
-const _providers = { playimdb, vidapi, asilmedia, anikai, idub, mochitv, uzmovi };
+const _providers = { vidapi, asilmedia, anikai, idub, mochitv, uzmovi };
 
 const _meta = {
-    playimdb: {
-        id:          'playimdb',
-        name:        'PlayIMDB',
-        image:       'https://img.freepik.com/premium-vector/play-media-movie-logo-template-design_316488-715.jpg',
-        url:         'https://playimdb.com',
-        description: 'Universal TMDB-backed catalog — multi-server iframe playback (PlayIMDB, StreamIMDB, VidSrc, VidLink)',
-    },
     vidapi: {
         id:          'vidapi',
         name:        'VidAPI',
