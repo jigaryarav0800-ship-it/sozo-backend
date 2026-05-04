@@ -11,9 +11,11 @@ const connectDB = require('./src/config/db');
 const swaggerSpec = require('./src/config/swagger');
 const { loadShed } = require('./src/middlewares/loadShed');
 
-const authRoutes = require('./src/routes/auth');
+const authRoutes    = require('./src/routes/auth');
 const contentRoutes = require('./src/routes/content');
 const commentRoutes = require('./src/routes/comments');
+const shortsRoutes  = require('./src/routes/shorts');
+const adminRoutes   = require('./src/routes/admin/index');
 
 const app = express();
 
@@ -50,9 +52,11 @@ app.use((req, res, next) => {
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-app.use('/api/auth', authRoutes);
+app.use('/api/auth',     authRoutes);
 app.use('/api/contents', contentRoutes);
 app.use('/api/comments', commentRoutes);
+app.use('/api/shorts',   shortsRoutes);
+app.use('/api/admin',    adminRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 

@@ -1,6 +1,7 @@
-const express = require('express');
-const router = express.Router();
-const c = require('../controllers/contentController');
+const express      = require('express');
+const router       = express.Router();
+const c            = require('../controllers/contentController');
+const optionalAuth = require('../middlewares/optionalAuth');
 const { rateLimit, timeout } = require('../middlewares/rateLimit');
 
 const generalLimit = rateLimit({ name: 'content',     capacity: 60, refillPerSec: 1 });

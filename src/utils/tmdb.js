@@ -158,9 +158,19 @@ async function getCountry(providerName, country, page = 1) {
     return buildListing(data, providerName, { type: 'movie', country, page: Number(page) });
 }
 
+async function resolvePersonId(input, role) {
+    const raw = String(input || '').trim();
+    if (!raw) throw Object.assign(new Error(`${role} required`), { status: 400 });
+    if (/^\d+$/.test(raw)) return Number(raw);
+
+    const data = await api('/search/person', { query: raw, include_adult: false });
+    const hit = (data.results || []).find(p => p.id);
+    if (!hit) throw Object.assign(new Error(`${role} "${raw}" not found`), { status: 404 });
+    return hit.id;
+}
+
 async function getActor(providerName, actor, page = 1) {
-    const id = Number(actor);
-    if (!id) throw Object.assign(new Error('actor must be a numeric TMDB person id'), { status: 400 });
+    const id = await resolvePersonId(actor, 'actor');
     const data = await api(`/person/${id}/combined_credits`);
     const all = (data.cast || []).map(r => toCard(r, providerName, r.media_type)).filter(c => c.title);
     const PER_PAGE = 20;
@@ -175,8 +185,7 @@ async function getActor(providerName, actor, page = 1) {
 }
 
 async function getDirector(providerName, director, page = 1) {
-    const id = Number(director);
-    if (!id) throw Object.assign(new Error('director must be a numeric TMDB person id'), { status: 400 });
+    const id = await resolvePersonId(director, 'director');
     const data = await api(`/person/${id}/combined_credits`);
     const all = (data.crew || []).filter(c => c.job === 'Director').map(r => toCard(r, providerName, r.media_type));
     const PER_PAGE = 20;

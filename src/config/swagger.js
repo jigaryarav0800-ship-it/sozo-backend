@@ -1,8 +1,11 @@
-const authSwagger = require('../swagger/auth.swagger');
-const contentSwagger = require('../swagger/content.swagger');
-const commentSwagger = require('../swagger/comment.swagger');
+const authSwagger         = require('../swagger/auth.swagger');
+const contentSwagger      = require('../swagger/content.swagger');
+const commentSwagger      = require('../swagger/comment.swagger');
+const adminAuthSwagger    = require('../swagger/adminAuth.swagger');
+const adminShortsSwagger  = require('../swagger/adminShorts.swagger');
+const publicShortsSwagger = require('../swagger/publicShorts.swagger');
 
-const modules = [authSwagger, contentSwagger, commentSwagger];
+const modules = [authSwagger, contentSwagger, commentSwagger, adminAuthSwagger, adminShortsSwagger, publicShortsSwagger];
 
 module.exports = {
   openapi: '3.0.0',
@@ -21,6 +24,12 @@ module.exports = {
         scheme: 'bearer',
         bearerFormat: 'JWT',
         description: 'Local auth: `POST /auth/login` yoki `/auth/register` dan olingan `accessToken`. Firebase: Firebase Auth SDK `user.getIdToken()`. Ikkalasi ham qabul qilinadi.',
+      },
+      AdminAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Admin token: `POST /admin/auth/login` dan olingan `accessToken` (1 soat amal qiladi).',
       },
     },
     schemas: {
@@ -210,6 +219,71 @@ module.exports = {
           page:       { type: 'integer' },
           totalPages: { type: 'integer' },
           total:      { type: 'integer' },
+        },
+      },
+
+      Short: {
+        type: 'object',
+        description: 'Admin ko\'rinishidagi short (likeCount soni, likes massivi yo\'q)',
+        properties: {
+          _id:          { type: 'string', example: '665a1b2c3d4e5f0012345678' },
+          title:        { type: 'string', example: 'Eng yaxshi sahna — Atirgul filmi' },
+          description:  { type: 'string', nullable: true, example: '23-qismdan ajoyib sahna' },
+          provider:     { type: 'string', example: 'asilmedia', description: 'Kontent manbai' },
+          contentUrl:   { type: 'string', nullable: true, example: 'https://asilmedia.org/12345-film.html' },
+          videoKey:     { type: 'string', example: 'shorts/videos/uuid.mp4', description: 'R2 fayl kaliti' },
+          videoUrl:     { type: 'string', example: 'https://cdn.soplay.uz/shorts/videos/uuid.mp4', description: 'To\'g\'ridan-to\'g\'ri video URL' },
+          thumbnailKey: { type: 'string', nullable: true, example: 'shorts/thumbnails/uuid.jpg' },
+          thumbnailUrl: { type: 'string', nullable: true, example: 'https://cdn.soplay.uz/shorts/thumbnails/uuid.jpg' },
+          views:        { type: 'integer', example: 1024 },
+          likeCount:    { type: 'integer', example: 48 },
+          tags:         { type: 'array', items: { type: 'string' }, example: ['drama', 'sevgi'] },
+          createdBy:    { type: 'string', description: 'Admin ID' },
+          createdAt:    { type: 'string', format: 'date-time' },
+          updatedAt:    { type: 'string', format: 'date-time' },
+        },
+      },
+
+      ShortPublic: {
+        type: 'object',
+        description: 'Foydalanuvchi ko\'rinishidagi short (likedByMe qo\'shilgan)',
+        allOf: [{ $ref: '#/components/schemas/Short' }],
+        properties: {
+          likedByMe: { type: 'boolean', description: 'Faqat Authorization header berilganda to\'g\'ri to\'ldiriladi' },
+        },
+      },
+
+      ShortList: {
+        type: 'object',
+        properties: {
+          items:      { type: 'array', items: { $ref: '#/components/schemas/ShortPublic' } },
+          page:       { type: 'integer', example: 1 },
+          totalPages: { type: 'integer', example: 5 },
+          total:      { type: 'integer', example: 87 },
+        },
+      },
+
+      AdminLoginResponse: {
+        type: 'object',
+        properties: {
+          admin: {
+            type: 'object',
+            properties: {
+              id:       { type: 'string' },
+              username: { type: 'string', example: 'admin' },
+            },
+          },
+          accessToken:  { type: 'string', description: '1 soat amal qiladi' },
+          refreshToken: { type: 'string', description: '30 kun amal qiladi' },
+        },
+      },
+
+      PresignedUrlResponse: {
+        type: 'object',
+        properties: {
+          uploadUrl: { type: 'string', description: 'R2 ga PUT so\'rov yuborish uchun vaqtinchalik URL (1 soat)' },
+          key:       { type: 'string', example: 'shorts/videos/uuid.mp4', description: 'Short yaratishda ishlatiladigan fayl kaliti' },
+          publicUrl: { type: 'string', example: 'https://cdn.soplay.uz/shorts/videos/uuid.mp4', description: 'Yuklangan faylning public URL si' },
         },
       },
 
