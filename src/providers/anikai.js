@@ -737,13 +737,16 @@ async function viewLink(lid) {
   return data;
 }
 
-const MEGA_HOSTS = (process.env.ANIKAI_MEGA_HOSTS || 'megaup.nl,megaup.live,megaup22.online,4spromax.site')
+const MEGA_HOSTS = (process.env.ANIKAI_MEGA_HOSTS || 'megaup.nl,megaup.live,megaup.cc,megaup22.online,4spromax.site')
   .split(',').map(s => s.trim()).filter(Boolean);
 
 const MEGA_REFERER = 'https://animekai.to/';
+const MEGA_UA = process.env.ANIKAI_MEGA_UA || BROWSER_UA;
+const TRY_MEGA_MIRRORS = process.env.ANIKAI_TRY_MEGA_MIRRORS === 'true';
+const TRY_ALL_SERVERS = process.env.ANIKAI_TRY_ALL_SERVERS === 'true';
 
 const megaHeaders = {
-  'User-Agent':       BROWSER_UA,
+  'User-Agent':       MEGA_UA,
   'Accept':           'text/html, */*; q=0.01',
   'Accept-Language':  'en-US,en;q=0.5',
   'Sec-GPC':          '1',
@@ -757,9 +760,10 @@ const megaHeaders = {
 };
 
 const megaHttp = axios.create({
-  timeout: 6_000,
+  timeout: 3_000,
   httpsAgent,
   headers: megaHeaders,
+  validateStatus: () => true,
 });
 
 async function fetchMegaSources(megaUrl, deadline = Infinity) {
@@ -770,7 +774,9 @@ async function fetchMegaSources(megaUrl, deadline = Infinity) {
     try { return new URL(megaUrl).hostname; } catch { return null; }
   })();
 
-  const hosts = [...new Set([originalHost, ...MEGA_HOSTS].filter(Boolean))];
+  const hosts = TRY_MEGA_MIRRORS
+    ? [...new Set([originalHost, ...MEGA_HOSTS].filter(Boolean))]
+    : [originalHost].filter(Boolean);
 
   let lastErr;
   for (const host of hosts) {
@@ -778,9 +784,12 @@ async function fetchMegaSources(megaUrl, deadline = Infinity) {
     const tryUrl = `https://${host}/media/${mediaId}`;
     try {
       const res = await megaHttp.get(tryUrl);
+      if (res.status < 200 || res.status >= 300) {
+        throw new Error(`${host} ${res.status}`);
+      }
       const cipher = res.data?.result;
-      if (!cipher) throw new Error('mega media response missing result');
-      const decoded = await decMega(cipher, BROWSER_UA);
+      if (!cipher) throw new Error(`${host} media response missing result`);
+      const decoded = await decMega(cipher, MEGA_UA);
       const sources = decoded?.sources || [];
       const tracks  = decoded?.tracks  || [];
       if (!sources.length) throw new Error('mega media decoded with no sources');
@@ -796,6 +805,22 @@ function isMegaUrl(url) {
   return typeof url === 'string' && /\/e2?\/[^?#/]+/.test(url);
 }
 
+function hostFromUrl(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); }
+  catch { return null; }
+}
+
+function isAnikaiIframeUrl(url) {
+  return typeof url === 'string' && /^https?:\/\/(?:www\.)?anikai\.to\/iframe\//i.test(url);
+}
+
+async function unwrapAnikaiIframe(url) {
+  const res = await httpGet(url, { headers: { Referer: HOST_REF } });
+  const $ = cheerio.load(res.data || '');
+  const nested = $('iframe[src]').first().attr('src');
+  return absUrl(nested);
+}
+
 async function tryServer(srv, attempts, deadline) {
   let view;
   try {
@@ -805,19 +830,27 @@ async function tryServer(srv, attempts, deadline) {
     return null;
   }
 
-  if (!isMegaUrl(view.url)) {
-
-    attempts.push({ sid: srv.sid, name: srv.name, skipped: 'non-mega url', url: view.url });
-    return null;
+  let sourceUrl = view.url;
+  if (isAnikaiIframeUrl(sourceUrl)) {
+    try {
+      sourceUrl = await unwrapAnikaiIframe(sourceUrl) || sourceUrl;
+    } catch (err) {
+      attempts.push({ sid: srv.sid, name: srv.name, warning: `iframe unwrap failed: ${err.message}`, url: view.url });
+    }
   }
 
-  try {
-    const { sources, tracks } = await fetchMegaSources(view.url, deadline);
-    return { srv, view, sources, tracks };
-  } catch (err) {
-    attempts.push({ sid: srv.sid, name: srv.name, error: err.message });
-    return null;
+  if (isMegaUrl(sourceUrl)) {
+    try {
+      const { sources, tracks, host } = await fetchMegaSources(sourceUrl, deadline);
+      return { srv, view, sources, tracks, embed: sourceUrl, host };
+    } catch (err) {
+      attempts.push({ sid: srv.sid, name: srv.name, error: err.message, fallback: 'iframe', url: view.url });
+      return { srv, view, sources: [], tracks: [], embed: view.url, host: hostFromUrl(sourceUrl), fallbackReason: err.message };
+    }
   }
+
+  attempts.push({ sid: srv.sid, name: srv.name, fallback: 'iframe', url: view.url });
+  return { srv, view, sources: [], tracks: [], embed: view.url, host: hostFromUrl(sourceUrl), fallbackReason: 'non-mega url' };
 }
 
 async function resolveMedia(refToken, opts = {}) {
@@ -837,34 +870,41 @@ async function resolveMedia(refToken, opts = {}) {
   if (cached) return cached;
 
   const servers = await fetchServerList(ref.ep);
-  let pool = servers.filter(s => s.lang === lang);
-  if (pool.length === 0 && lang === 'sub') {
-    pool = servers.filter(s => s.lang === 'softsub');
-  }
+  const wantedLangs = lang === 'sub'
+    ? ['sub', 'softsub']
+    : (lang === 'softsub' ? ['softsub', 'sub'] : [lang]);
+  let pool = servers.filter(s => wantedLangs.includes(s.lang));
   if (pool.length === 0) {
     throw Object.assign(new Error(`anikai: no "${lang}" server available for this episode`), { status: 404 });
   }
-  pool.sort((a, b) => a.sid - b.sid);
 
   const requested = pool.find(s => s.sid === requestedSid);
   const ordered = requested
     ? [requested, ...pool.filter(s => s !== requested)]
     : pool.slice();
 
-  const BUDGET_MS = 14_000;
+  const BUDGET_MS = 8_000;
   const deadline = Date.now() + BUDGET_MS;
 
   const attempts = [];
   let resolved = null;
+  let fallback = null;
   for (const srv of ordered) {
     if (Date.now() >= deadline) {
       attempts.push({ sid: srv.sid, name: srv.name, skipped: 'budget exhausted' });
       break;
     }
-    resolved = await tryServer(srv, attempts, deadline);
-    if (resolved && resolved.sources?.length) break;
-    resolved = null;
+    const candidate = await tryServer(srv, attempts, deadline);
+    if (candidate?.sources?.length) {
+      resolved = candidate;
+      break;
+    }
+    if (candidate?.embed) {
+      if (!fallback) fallback = candidate;
+      if (!TRY_ALL_SERVERS) break;
+    }
   }
+  if (!resolved && fallback) resolved = fallback;
 
   if (!resolved) {
     throw Object.assign(
@@ -876,7 +916,27 @@ async function resolveMedia(refToken, opts = {}) {
   const { srv: chosen, view, sources, tracks } = resolved;
   const playable = sources[0]?.file || null;
   if (!playable) {
-    throw Object.assign(new Error('anikai: extractor returned no playable source'), { status: 502 });
+    const result = {
+      videoUrl:     resolved.embed || view.url,
+      type:         'iframe',
+      headers:      VIDEO_HEADERS,
+      videoSources: [{
+        quality:   `${chosen.lang.toUpperCase()} ${chosen.name}`.trim(),
+        videoUrl:  resolved.embed || view.url,
+        isDefault: true,
+        type:      'iframe',
+        host:      resolved.host || hostFromUrl(resolved.embed || view.url),
+        embed:     resolved.embed || view.url,
+      }],
+      embed:      resolved.embed || view.url,
+      host:       resolved.host || hostFromUrl(resolved.embed || view.url),
+      server:     { name: chosen.name, sid: chosen.sid, lang: chosen.lang },
+      skip:       view.skip || null,
+      alternates: attempts,
+      languagesAvailable: [...new Set(servers.map(s => s.lang))],
+    };
+    cacheSet(cacheKey, result, 5 * 60 * 1000);
+    return result;
   }
 
   const subtitles = (tracks || []).map(t => ({
@@ -890,7 +950,18 @@ async function resolveMedia(refToken, opts = {}) {
     videoUrl: playable,
     type:     sources[0]?.type || 'hls',
     headers:  VIDEO_HEADERS,
+    videoSources: sources.map((s, i) => ({
+      quality:   s.label || s.quality || `${chosen.lang.toUpperCase()} ${chosen.name}`.trim(),
+      videoUrl:  s.file,
+      isDefault: i === 0,
+      type:      s.type || 'hls',
+      headers:   VIDEO_HEADERS,
+      host:      resolved.host || hostFromUrl(resolved.embed || view.url),
+      embed:     resolved.embed || view.url,
+    })).filter(s => s.videoUrl),
     subtitles,
+    embed:    resolved.embed || view.url,
+    host:     resolved.host || hostFromUrl(resolved.embed || view.url),
     skip:     view.skip || null,
     server:   { name: chosen.name, sid: chosen.sid, lang: chosen.lang },
     languagesAvailable: [...new Set(servers.map(s => s.lang))],
