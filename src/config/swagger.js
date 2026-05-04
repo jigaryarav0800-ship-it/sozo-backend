@@ -178,6 +178,7 @@ module.exports = {
           director:     { type: 'string', nullable: true },
           duration:     { type: 'string', nullable: true },
           isSerial:     { type: 'boolean', description: 'true bo\'lsa /contents/episodes episodes qaytaradi, aks holda videoSources' },
+          isFavorited:  { type: 'boolean', description: 'Faqat Authorization header berilganda qaytadi: kontent foydalanuvchi sevimlilarida bormi' },
           screenshots:  { type: 'array', items: { $ref: '#/components/schemas/Screenshot' } },
           related:      { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
           contentUrl:   { type: 'string', description: 'Kontent URL (provider sahifasidagi)' },

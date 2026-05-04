@@ -187,7 +187,8 @@ module.exports = {
       get: {
         tags: ['Contents'],
         summary: 'Kontent metadatasi — yengil va tez',
-        description: 'Faqat metadata: title, description, cast, screenshots, related va isSerial flag. Epizodlar yoki video manbalari uchun /contents/episodes ga murojaat qiling. Provider `url` dan avtomatik aniqlanadi.',
+        description: 'Faqat metadata: title, description, cast, screenshots, related va isSerial flag. Epizodlar yoki video manbalari uchun /contents/episodes ga murojaat qiling. Provider `url` dan avtomatik aniqlanadi. Authorization header berilsa `isFavorited` ham qaytadi.',
+        security: [{}, { BearerAuth: [] }],
         parameters: [
           {
             in: 'query', name: 'url', required: true,

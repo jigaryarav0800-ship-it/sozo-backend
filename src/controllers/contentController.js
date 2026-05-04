@@ -1,5 +1,24 @@
 const { getProvider, detectProvider, listProviders, normalizeDetail, normalizeEpisodes, normalizeMedia, getEpisodes: providerGetEpisodes, resolveMedia } = require('../providers');
 
+function normalizeFavoriteUrl(value) {
+  return String(value || '').replace(/\/+$/, '');
+}
+
+function isFavoritedBy(user, providerName, detail, requestUrl) {
+  if (!user) return null;
+
+  const candidates = new Set(
+    [requestUrl, detail.contentUrl]
+      .filter(Boolean)
+      .map(normalizeFavoriteUrl)
+  );
+
+  return (user.favorites || []).some((favorite) => (
+    favorite.provider === providerName
+    && candidates.has(normalizeFavoriteUrl(favorite.contentUrl))
+  ));
+}
+
 async function getLatest(req, res) {
   const { page = 1, provider = 'asilmedia' } = req.query;
   const result = await getProvider(provider).getLatest(page);
@@ -62,7 +81,10 @@ async function getDetail(req, res) {
   if (!url) return res.status(400).json({ message: 'url parametri majburiy' });
   const providerName = detectProvider(url);
   const raw = await getProvider(providerName).getDetail(url);
-  res.json(normalizeDetail(raw, providerName));
+  const detail = normalizeDetail(raw, providerName);
+  const isFavorited = isFavoritedBy(req.user, providerName, detail, url);
+  if (isFavorited !== null) detail.isFavorited = isFavorited;
+  res.json(detail);
 }
 
 async function getEpisodes(req, res) {
