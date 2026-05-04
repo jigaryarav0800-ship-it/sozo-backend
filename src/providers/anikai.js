@@ -4,6 +4,7 @@ const cheerio = require('cheerio');
 const { encKai, decKai, decMega } = require('../utils/anikai/cipher');
 const mediaRef = require('../utils/anikai/mediaRef');
 const jikan = require('../utils/anikai/jikan');
+const { findExtractor, extract: extractVideo } = require('../utils/extractors');
 
 const PROVIDER = 'anikai';
 const BASE     = 'https://anikai.to';
@@ -742,27 +743,30 @@ const MEGA_HOSTS = (process.env.ANIKAI_MEGA_HOSTS || 'megaup.nl,megaup.live,mega
 
 const MEGA_REFERER = 'https://animekai.to/';
 const MEGA_UA = process.env.ANIKAI_MEGA_UA || BROWSER_UA;
-const TRY_MEGA_MIRRORS = process.env.ANIKAI_TRY_MEGA_MIRRORS === 'true';
+const TRY_MEGA_MIRRORS = process.env.ANIKAI_TRY_MEGA_MIRRORS !== 'false';
 const TRY_ALL_SERVERS = process.env.ANIKAI_TRY_ALL_SERVERS === 'true';
 
-const megaHeaders = {
-  'User-Agent':       MEGA_UA,
-  'Accept':           'text/html, */*; q=0.01',
-  'Accept-Language':  'en-US,en;q=0.5',
-  'Sec-GPC':          '1',
-  'Sec-Fetch-Dest':   'empty',
-  'Sec-Fetch-Mode':   'cors',
-  'Sec-Fetch-Site':   'same-origin',
-  'Priority':         'u=0',
-  'Pragma':           'no-cache',
-  'Cache-Control':    'no-cache',
-  'Referer':          MEGA_REFERER,
-};
+function megaRequestHeaders(host, mediaId) {
+  return {
+    'User-Agent':       MEGA_UA,
+    'Accept':           '*/*',
+    'Accept-Language':  'en-US,en;q=0.5',
+    'Sec-GPC':          '1',
+    'Sec-Fetch-Dest':   'empty',
+    'Sec-Fetch-Mode':   'cors',
+    'Sec-Fetch-Site':   'same-origin',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Priority':         'u=0',
+    'Pragma':           'no-cache',
+    'Cache-Control':    'no-cache',
+    'Referer':          `https://${host}/e/${mediaId}`,
+    'Origin':           `https://${host}`,
+  };
+}
 
 const megaHttp = axios.create({
-  timeout: 3_000,
+  timeout: 5_000,
   httpsAgent,
-  headers: megaHeaders,
   validateStatus: () => true,
 });
 
@@ -783,7 +787,9 @@ async function fetchMegaSources(megaUrl, deadline = Infinity) {
     if (Date.now() >= deadline) break;
     const tryUrl = `https://${host}/media/${mediaId}`;
     try {
-      const res = await megaHttp.get(tryUrl);
+      const res = await megaHttp.get(tryUrl, {
+        headers: { ...megaRequestHeaders(host, mediaId), 'User-Agent': MEGA_UA },
+      });
       if (res.status < 200 || res.status >= 300) {
         throw new Error(`${host} ${res.status}`);
       }
@@ -844,8 +850,25 @@ async function tryServer(srv, attempts, deadline) {
       const { sources, tracks, host } = await fetchMegaSources(sourceUrl, deadline);
       return { srv, view, sources, tracks, embed: sourceUrl, host };
     } catch (err) {
-      attempts.push({ sid: srv.sid, name: srv.name, error: err.message, fallback: 'iframe', url: view.url });
-      return { srv, view, sources: [], tracks: [], embed: view.url, host: hostFromUrl(sourceUrl), fallbackReason: err.message };
+      attempts.push({ sid: srv.sid, name: srv.name, error: err.message, url: view.url });
+      return { srv, view, sources: [], tracks: [], embed: sourceUrl, host: hostFromUrl(sourceUrl), fallbackReason: err.message };
+    }
+  }
+
+  const ext = findExtractor(sourceUrl);
+  if (ext) {
+    try {
+      const extracted = await extractVideo(sourceUrl, HOST_REF);
+      return {
+        srv, view,
+        sources: [{ file: extracted.videoUrl, type: extracted.type, label: extracted.host }],
+        tracks: [],
+        embed: sourceUrl,
+        host: extracted.host,
+      };
+    } catch (err) {
+      attempts.push({ sid: srv.sid, name: srv.name, error: `extractor(${ext.host}): ${err.message}`, url: view.url });
+      return { srv, view, sources: [], tracks: [], embed: sourceUrl, host: ext.host, fallbackReason: err.message };
     }
   }
 
@@ -883,7 +906,7 @@ async function resolveMedia(refToken, opts = {}) {
     ? [requested, ...pool.filter(s => s !== requested)]
     : pool.slice();
 
-  const BUDGET_MS = 8_000;
+  const BUDGET_MS = 12_000;
   const deadline = Date.now() + BUDGET_MS;
 
   const attempts = [];
@@ -899,9 +922,8 @@ async function resolveMedia(refToken, opts = {}) {
       resolved = candidate;
       break;
     }
-    if (candidate?.embed) {
-      if (!fallback) fallback = candidate;
-      if (!TRY_ALL_SERVERS) break;
+    if (candidate?.embed && !fallback) {
+      fallback = candidate;
     }
   }
   if (!resolved && fallback) resolved = fallback;
@@ -1043,7 +1065,7 @@ async function diagnose(url) {
       for (const host of candidates) {
         try {
           const r = await axios.head(`https://${host}/media/${id}`, {
-            timeout: 6000, headers: megaHeaders, validateStatus: () => true, maxRedirects: 0,
+            timeout: 6000, headers: megaRequestHeaders(host, id), validateStatus: () => true, maxRedirects: 0,
           });
           results.push({ host, status: r.status });
         } catch (e) {
