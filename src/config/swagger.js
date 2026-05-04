@@ -1,7 +1,8 @@
 const authSwagger = require('../swagger/auth.swagger');
 const contentSwagger = require('../swagger/content.swagger');
+const commentSwagger = require('../swagger/comment.swagger');
 
-const modules = [authSwagger, contentSwagger];
+const modules = [authSwagger, contentSwagger, commentSwagger];
 
 module.exports = {
   openapi: '3.0.0',
@@ -15,16 +16,14 @@ module.exports = {
   paths: Object.assign({}, ...modules.map((m) => m.paths)),
   components: {
     securitySchemes: {
-      BearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      BearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Local auth: `POST /auth/login` yoki `/auth/register` dan olingan `accessToken`. Firebase: Firebase Auth SDK `user.getIdToken()`. Ikkalasi ham qabul qilinadi.',
+      },
     },
     schemas: {
-      AuthResponse: {
-        type: 'object',
-        properties: {
-          token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
-          user:  { $ref: '#/components/schemas/User' },
-        },
-      },
 
       FavoriteItem: {
         type: 'object',
@@ -54,7 +53,8 @@ module.exports = {
           username:     { type: 'string' },
           email:        { type: 'string' },
           photoURL:     { type: 'string', nullable: true },
-          authProvider: { type: 'string', enum: ['local', 'google'], example: 'local' },
+          displayName:  { type: 'string', nullable: true },
+          authProvider: { type: 'string', enum: ['local', 'google', 'firebase'], example: 'local' },
           favorites:    { type: 'array', items: { $ref: '#/components/schemas/FavoriteItem' } },
           watchHistory: { type: 'array', items: { $ref: '#/components/schemas/HistoryItem' } },
           createdAt:    { type: 'string', format: 'date-time' },
@@ -116,22 +116,30 @@ module.exports = {
         },
       },
 
+      CastMember: {
+        type: 'object',
+        properties: {
+          id:    { type: 'string', example: 'miray_dogan', description: 'Unikal identifikator (provider bo\'yicha barqaror)' },
+          name:  { type: 'string', example: 'Miray Dogan' },
+          image: { type: 'string', description: 'Aktyor rasmi. Bo\'lmasa ui-avatars.com default avatar' },
+        },
+      },
+
       Episode: {
         type: 'object',
         properties: {
           episode:  { type: 'integer', example: 1 },
           label:    { type: 'string', example: '1-qism' },
-          videoUrl: { type: 'string', description: 'To\'g\'ridan-to\'g\'ri MP4/video URL' },
+          mediaRef: { type: 'string', description: '/contents/media?ref=<mediaRef>&provider=<provider> ga yuboriladi' },
         },
       },
 
       VideoSource: {
         type: 'object',
         properties: {
-          quality:    { type: 'string', example: '720p' },
-          videoUrl:   { type: 'string', description: 'To\'g\'ridan-to\'g\'ri MP4/video URL' },
-          isDefault:  { type: 'boolean' },
-          accessible: { type: 'boolean', description: 'HEAD tekshiruvi — false bo\'lsa URL 404 qaytargan' },
+          quality:   { type: 'string', example: '720p' },
+          videoUrl:  { type: 'string', description: 'To\'g\'ridan-to\'g\'ri MP4/video URL' },
+          isDefault: { type: 'boolean' },
         },
       },
 
@@ -145,7 +153,7 @@ module.exports = {
 
       ContentDetail: {
         type: 'object',
-        description: 'Barcha providerlar uchun bir xil shape',
+        description: 'Yengil metadata payload — ijro uchun /contents/episodes ga alohida murojaat qiling',
         properties: {
           provider:     { type: 'string', example: 'asilmedia' },
           contentId:    { type: 'string', nullable: true },
@@ -156,17 +164,66 @@ module.exports = {
           likes:        { type: 'integer', example: 92 },
           dislikes:     { type: 'integer', example: 7 },
           genres:       { type: 'array', items: { type: 'string' } },
-          cast:         { type: 'array', items: { type: 'string' } },
+          cast:         { type: 'array', items: { $ref: '#/components/schemas/CastMember' } },
           country:      { type: 'string', nullable: true },
           director:     { type: 'string', nullable: true },
           duration:     { type: 'string', nullable: true },
-          isSerial:     { type: 'boolean' },
-          episodes:     { type: 'array', items: { $ref: '#/components/schemas/Episode' }, description: 'Faqat seriallar uchun' },
-          videoSources: { type: 'array', items: { $ref: '#/components/schemas/VideoSource' }, description: 'Faqat kinolar uchun' },
+          isSerial:     { type: 'boolean', description: 'true bo\'lsa /contents/episodes episodes qaytaradi, aks holda videoSources' },
           screenshots:  { type: 'array', items: { $ref: '#/components/schemas/Screenshot' } },
           related:      { type: 'array', items: { $ref: '#/components/schemas/ContentCard' } },
-          playerSrc:    { type: 'string', nullable: true, description: 'To\'g\'ridan-to\'g\'ri video URL — birinchi epizod yoki default sifat' },
           contentUrl:   { type: 'string', description: 'Kontent URL (provider sahifasidagi)' },
+        },
+      },
+
+      CommentAuthor: {
+        type: 'object',
+        properties: {
+          id:          { type: 'string', example: '655e7a2b9c1f0a0012345678' },
+          username:    { type: 'string', example: 'john_doe' },
+          displayName: { type: 'string', nullable: true, example: 'John Doe' },
+          photoURL:    { type: 'string', nullable: true },
+        },
+      },
+
+      Comment: {
+        type: 'object',
+        properties: {
+          id:         { type: 'string', example: '660a1b2c3d4e5f0012345678' },
+          provider:   { type: 'string', example: 'asilmedia' },
+          contentUrl: { type: 'string', example: 'https://asilmedia.org/17987-arosat-oramizda.html' },
+          text:       { type: 'string', example: 'Juda yaxshi serial!' },
+          parentId:   { type: 'string', nullable: true, description: 'Top-level izoh uchun null, javoblar uchun parent ID' },
+          user:       { $ref: '#/components/schemas/CommentAuthor' },
+          likeCount:  { type: 'integer', example: 12 },
+          likedByMe:  { type: 'boolean', description: 'Faqat Authorization header berilganda to\'g\'ri to\'ldiriladi' },
+          edited:     { type: 'boolean' },
+          replyCount: { type: 'integer', description: 'Top-level izohlar uchun javoblar soni' },
+          createdAt:  { type: 'string', format: 'date-time' },
+          updatedAt:  { type: 'string', format: 'date-time' },
+        },
+      },
+
+      CommentList: {
+        type: 'object',
+        properties: {
+          items:      { type: 'array', items: { $ref: '#/components/schemas/Comment' } },
+          page:       { type: 'integer' },
+          totalPages: { type: 'integer' },
+          total:      { type: 'integer' },
+        },
+      },
+
+      EpisodesPayload: {
+        type: 'object',
+        description: 'Ijro payloadi — serial bo\'lsa episodes, kino bo\'lsa videoSources+playerSrc',
+        properties: {
+          provider:     { type: 'string', example: 'asilmedia' },
+          contentUrl:   { type: 'string' },
+          isSerial:     { type: 'boolean' },
+          episodes:     { type: 'array', items: { $ref: '#/components/schemas/Episode' }, description: 'Faqat isSerial=true bo\'lganda. Har epizod mediaRef qaytaradi — video URL ni /contents/media orqali oling' },
+          videoSources: { type: 'array', items: { $ref: '#/components/schemas/VideoSource' }, description: 'Faqat isSerial=false bo\'lganda — video URL allaqachon hal qilingan' },
+          playerSrc:    { type: 'string', nullable: true, description: 'Faqat isSerial=false bo\'lganda — default video URL' },
+          headers:      { type: 'object', additionalProperties: { type: 'string' }, description: 'Faqat isSerial=false bo\'lganda — playerga uzatish kerak bo\'lgan HTTP headerlar (Referer, User-Agent...)' },
         },
       },
     },

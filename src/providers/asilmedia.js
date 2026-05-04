@@ -1,5 +1,7 @@
 const axios = require('axios');
+const https = require('https');
 const cheerio = require('cheerio');
+const { SwrCache } = require('../utils/swrCache');
 
 const PROVIDER = 'asilmedia';
 const BASE = 'https://asilmedia.org';
@@ -31,55 +33,76 @@ const GENRE_IMAGES = {
     musiqiy: 'https://image.tmdb.org/t/p/w276_and_h350_face/jNG7pl0DkN1nzxnbZj4MCGf2VEG.jpg',
 };
 
+const VIDEO_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36',
+    'Referer': `${BASE}/`,
+    'Accept': '*/*',
+    'Accept-Language': 'uz,ru;q=0.9,en;q=0.8',
+};
+
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 8 });
+httpsAgent.setMaxListeners(0);
+{
+    const origCreate = httpsAgent.createConnection.bind(httpsAgent);
+    httpsAgent.createConnection = (opts, cb) => {
+        const socket = origCreate(opts, cb);
+        socket.setMaxListeners(0);
+        return socket;
+    };
+}
+
 const http = axios.create({
-    baseURL: BASE, timeout: 20000, headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36',
+    baseURL: BASE,
+    timeout: 20000,
+    httpsAgent,
+    headers: {
+        'User-Agent': VIDEO_HEADERS['User-Agent'],
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'uz,ru;q=0.9,en;q=0.8',
+        'Accept-Language': VIDEO_HEADERS['Accept-Language'],
         'DNT': '1',
     },
 });
 
-const MAX_CACHE_ENTRIES = 500;
-const _cache = new Map();
-
-function cacheGet(key) {
-    const entry = _cache.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expires) {
-        _cache.delete(key);
-        return null;
-    }
-    return entry.data;
+const MAX_CONCURRENCY = 12;
+let _running = 0;
+const _queue = [];
+function gate(fn) {
+    return new Promise((resolve, reject) => {
+        const run = () => {
+            _running++;
+            Promise.resolve().then(fn).then(
+                v => { _running--; const n = _queue.shift(); if (n) n(); resolve(v); },
+                e => { _running--; const n = _queue.shift(); if (n) n(); reject(e); }
+            );
+        };
+        if (_running < MAX_CONCURRENCY) run();
+        else _queue.push(run);
+    });
 }
 
-function cacheSet(key, data, ttlMs = 5 * 60 * 1000) {
-    if (_cache.size >= MAX_CACHE_ENTRIES) {
-        _cache.delete(_cache.keys().next().value);
-    }
-    _cache.set(key, {data, expires: Date.now() + ttlMs});
-}
-
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of _cache) {
-        if (now > entry.expires) _cache.delete(key);
-    }
-}, 2 * 60 * 1000).unref();
+const swr = new SwrCache({ maxEntries: 600 });
+swr.startSweepTimer();
 
 async function fetchHtml(path) {
-    try {
-        const response = await http.get(path);
-        const finalPath = response.request?.path;
-        if (path !== '/' && finalPath === '/') {
-            throw Object.assign(new Error(`asilmedia.org redirected "${path}" to home page`), {status: 404});
+    return gate(async () => {
+        try {
+            const response = await http.get(path);
+            const finalPath = response.request?.path;
+            if (path !== '/' && finalPath === '/') {
+                throw Object.assign(new Error(`asilmedia.org redirected "${path}" to home page`), {status: 404});
+            }
+            return response.data;
+        } catch (err) {
+            const status = err.response?.status;
+            const msg = status ? `asilmedia.org returned ${status} for "${path}"` : `Network error: ${err.message}`;
+            throw Object.assign(new Error(msg), {status: status || 502});
         }
-        return response.data;
-    } catch (err) {
-        const status = err.response?.status;
-        const msg = status ? `asilmedia.org returned ${status} for "${path}"` : `Network error: ${err.message}`;
-        throw Object.assign(new Error(msg), {status: status || 502});
-    }
+    });
+}
+
+async function fetchDetailHtml(url) {
+    const path = url.replace(BASE, '');
+    return swr.fetch(`html:${path}`, 5 * 60 * 1000, 25 * 60 * 1000, () => fetchHtml(path));
 }
 
 function absUrl(src) {
@@ -110,26 +133,12 @@ function normalizeVideoUrl(raw) {
     return raw.replace(/ /g, '%20');
 }
 
-async function probeUrl(videoUrl) {
-    try {
-        const res = await axios.head(videoUrl, {
-            timeout: 4000, headers: {'User-Agent': 'Mozilla/5.0', Range: 'bytes=0-0'}, maxRedirects: 5,
-        });
-        return {accessible: res.status < 400, status: res.status};
-    } catch (err) {
-        const status = err.response?.status || 0;
-        return {accessible: status !== 404, status};
-    }
+function ensure$(input) {
+    return typeof input === 'string' ? cheerio.load(input) : input;
 }
 
-async function verifyVideoSources(sources) {
-    if (!sources.length) return sources;
-    const probes = await Promise.all(sources.map(s => probeUrl(s.videoUrl)));
-    return sources.map((s, i) => ({...s, accessible: probes[i].accessible}));
-}
-
-function parseCards(html) {
-    const $ = cheerio.load(html);
+function parseCards(input) {
+    const $ = ensure$(input);
     const items = [];
 
     $('article.card').each((_, el) => {
@@ -181,8 +190,8 @@ function parseCards(html) {
     return items;
 }
 
-function parseBanner(html) {
-    const $ = cheerio.load(html);
+function parseBanner(input) {
+    const $ = ensure$(input);
     const items = [];
 
     $('.hero-slider .swiper-slide .slider-card').each((_, el) => {
@@ -225,8 +234,8 @@ function parseBanner(html) {
     return items;
 }
 
-function parseTotalPages(html) {
-    const $ = cheerio.load(html);
+function parseTotalPages(input) {
+    const $ = ensure$(input);
     let max = 1;
     $('div.pagination a[href]').each((_, el) => {
         const href = $(el).attr('href') || '';
@@ -241,16 +250,16 @@ function parseTotalPages(html) {
     return max;
 }
 
-async function getLatest(page = 1) {
-    const key = `latest:${page}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
+function buildListing(html, extras) {
+    const $ = cheerio.load(html);
+    return { provider: PROVIDER, items: parseCards($), ...extras, totalPages: parseTotalPages($) };
+}
 
-    const path = page > 1 ? `/page/${page}/` : '/';
-    const html = await fetchHtml(path);
-    const result = {provider: PROVIDER, items: parseCards(html), page: Number(page), totalPages: parseTotalPages(html)};
-    cacheSet(key, result);
-    return result;
+async function getLatest(page = 1) {
+    return swr.fetch(`latest:${page}`, 3 * 60 * 1000, 15 * 60 * 1000, async () => {
+        const html = await fetchHtml(page > 1 ? `/page/${page}/` : '/');
+        return buildListing(html, { page: Number(page) });
+    });
 }
 
 async function getCategory(category, page = 1) {
@@ -258,158 +267,86 @@ async function getCategory(category, page = 1) {
     if (!catPath) {
         throw Object.assign(new Error(`Unknown category "${category}". Valid: ${Object.keys(CATEGORIES).join(', ')}`), {status: 400});
     }
-    const key = `cat:${category}:${page}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
-
-    const path = page > 1 ? `/${catPath}/page/${page}/` : `/${catPath}/`;
-    const html = await fetchHtml(path);
-    const result = {
-        provider: PROVIDER, items: parseCards(html), category, page: Number(page), totalPages: parseTotalPages(html)
-    };
-    cacheSet(key, result);
-    return result;
+    return swr.fetch(`cat:${category}:${page}`, 10 * 60 * 1000, 30 * 60 * 1000, async () => {
+        const html = await fetchHtml(page > 1 ? `/${catPath}/page/${page}/` : `/${catPath}/`);
+        return buildListing(html, { category, page: Number(page) });
+    });
 }
 
 async function getGenre(genre, page = 1) {
-    const key = `genre:${genre}:${page}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
-
-    const path = page > 1 ? `/xfsearch/genre/${genre}/page/${page}/` : `/xfsearch/genre/${genre}/`;
-    const html = await fetchHtml(path);
-    const result = {
-        provider: PROVIDER, items: parseCards(html), genre, page: Number(page), totalPages: parseTotalPages(html)
-    };
-    cacheSet(key, result);
-    return result;
+    return swr.fetch(`genre:${genre}:${page}`, 10 * 60 * 1000, 30 * 60 * 1000, async () => {
+        const html = await fetchHtml(page > 1 ? `/xfsearch/genre/${genre}/page/${page}/` : `/xfsearch/genre/${genre}/`);
+        return buildListing(html, { genre, page: Number(page) });
+    });
 }
 
 async function getYear(year, page = 1) {
-    const key = `year:${year}:${page}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
-
-    const path = page > 1 ? `/xfsearch/year/${year}/page/${page}/` : `/xfsearch/year/${year}/`;
-    const html = await fetchHtml(path);
-    const result = {
-        provider: PROVIDER,
-        items: parseCards(html),
-        year: Number(year),
-        page: Number(page),
-        totalPages: parseTotalPages(html)
-    };
-    cacheSet(key, result);
-    return result;
+    return swr.fetch(`year:${year}:${page}`, 30 * 60 * 1000, 60 * 60 * 1000, async () => {
+        const html = await fetchHtml(page > 1 ? `/xfsearch/year/${year}/page/${page}/` : `/xfsearch/year/${year}/`);
+        return buildListing(html, { year: Number(year), page: Number(page) });
+    });
 }
 
 async function getCountry(country, page = 1) {
-    const key = `country:${country}:${page}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
-
-    const path = page > 1 ? `/xfsearch/world/${encodeURIComponent(country)}/page/${page}/` : `/xfsearch/world/${encodeURIComponent(country)}/`;
-    const html = await fetchHtml(path);
-    const result = {
-        provider: PROVIDER, items: parseCards(html), country, page: Number(page), totalPages: parseTotalPages(html)
-    };
-    cacheSet(key, result);
-    return result;
+    return swr.fetch(`country:${country}:${page}`, 30 * 60 * 1000, 60 * 60 * 1000, async () => {
+        const html = await fetchHtml(page > 1 ? `/xfsearch/world/${encodeURIComponent(country)}/page/${page}/` : `/xfsearch/world/${encodeURIComponent(country)}/`);
+        return buildListing(html, { country, page: Number(page) });
+    });
 }
 
 async function getActor(actor, page = 1) {
-    const key = `actor:${actor}:${page}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
-
-    const path = page > 1 ? `/xfsearch/actors/${encodeURIComponent(actor)}/page/${page}/` : `/xfsearch/actors/${encodeURIComponent(actor)}/`;
-    const html = await fetchHtml(path);
-    const result = {
-        provider: PROVIDER, items: parseCards(html), actor, page: Number(page), totalPages: parseTotalPages(html)
-    };
-    cacheSet(key, result);
-    return result;
+    return swr.fetch(`actor:${actor}:${page}`, 30 * 60 * 1000, 60 * 60 * 1000, async () => {
+        const html = await fetchHtml(page > 1 ? `/xfsearch/actors/${encodeURIComponent(actor)}/page/${page}/` : `/xfsearch/actors/${encodeURIComponent(actor)}/`);
+        return buildListing(html, { actor, page: Number(page) });
+    });
 }
 
 async function getDirector(director, page = 1) {
-    const key = `director:${director}:${page}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
-
-    const path = page > 1 ? `/xfsearch/directed/${encodeURIComponent(director)}/page/${page}/` : `/xfsearch/directed/${encodeURIComponent(director)}/`;
-    const html = await fetchHtml(path);
-    const result = {
-        provider: PROVIDER, items: parseCards(html), director, page: Number(page), totalPages: parseTotalPages(html)
-    };
-    cacheSet(key, result);
-    return result;
+    return swr.fetch(`director:${director}:${page}`, 30 * 60 * 1000, 60 * 60 * 1000, async () => {
+        const html = await fetchHtml(page > 1 ? `/xfsearch/directed/${encodeURIComponent(director)}/page/${page}/` : `/xfsearch/directed/${encodeURIComponent(director)}/`);
+        return buildListing(html, { director, page: Number(page) });
+    });
 }
 
 async function search(query, page = 1) {
-    const key = `search:${query}:${page}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
-
-    const start = (Number(page) - 1) * 10;
-    const path = `/?do=search&subaction=search&search_start=${start}&full_search=0&story=${encodeURIComponent(query)}`;
-    const html = await fetchHtml(path);
-    const result = {
-        provider: PROVIDER, items: parseCards(html), query, page: Number(page), totalPages: parseTotalPages(html)
-    };
-    cacheSet(key, result, 2 * 60 * 1000);
-    return result;
+    return swr.fetch(`search:${query}:${page}`, 60 * 1000, 5 * 60 * 1000, async () => {
+        const start = (Number(page) - 1) * 10;
+        const html = await fetchHtml(`/?do=search&subaction=search&search_start=${start}&full_search=0&story=${encodeURIComponent(query)}`);
+        return buildListing(html, { query, page: Number(page) });
+    });
 }
 
 async function getHome() {
-    const cached = cacheGet('home');
-    if (cached) return cached;
-
-    const [homeHtml, serialsResult, tarjimaResult, multfilmResult] = await Promise.all([
-        fetchHtml('/'),
-        getCategory('seriallar', 1).catch(() => ({items: []})),
-        getCategory('tarjima-kinolar', 1).catch(() => ({items: []})),
-        getCategory('multfilmlar', 1).catch(() => ({items: []})),]);
-
-    const result = {
-        provider: PROVIDER,
-        banner: parseBanner(homeHtml),
-        sections: [
-            {key: 'latest', label: 'Yangilar', viewAll: {type: 'latest'}, items: parseCards(homeHtml).slice(0, 12)},
-            {
-                key: 'serials',
-                label: 'Seriallar',
-                viewAll: {type: 'category', slug: 'seriallar'},
-                items: serialsResult.items.slice(0, 12)
-            },
-            {
-                key: 'tarjima',
-                label: 'Tarjima kinolar',
-                viewAll: {type: 'category', slug: 'tarjima-kinolar'},
-                items: tarjimaResult.items.slice(0, 12)
-            },
-            {
-                key: 'multfilm',
-                label: 'Multfilmlar',
-                viewAll: {type: 'category', slug: 'multfilmlar'},
-                items: multfilmResult.items.slice(0, 12)
-            },
-        ],
-    };
-
-    cacheSet('home', result, 5 * 60 * 1000);
-    return result;
+    return swr.fetch('home', 5 * 60 * 1000, 30 * 60 * 1000, async () => {
+        const [homeHtml, serialsResult, tarjimaResult, multfilmResult] = await Promise.all([
+            fetchHtml('/'),
+            getCategory('seriallar', 1).catch(() => ({items: []})),
+            getCategory('tarjima-kinolar', 1).catch(() => ({items: []})),
+            getCategory('multfilmlar', 1).catch(() => ({items: []})),
+        ]);
+        const $ = cheerio.load(homeHtml);
+        return {
+            provider: PROVIDER,
+            banner: parseBanner($),
+            sections: [
+                {key: 'latest', label: 'Yangilar', viewAll: {type: 'latest'}, items: parseCards($).slice(0, 12)},
+                {key: 'serials', label: 'Seriallar', viewAll: {type: 'category', slug: 'seriallar'}, items: serialsResult.items.slice(0, 12)},
+                {key: 'tarjima', label: 'Tarjima kinolar', viewAll: {type: 'category', slug: 'tarjima-kinolar'}, items: tarjimaResult.items.slice(0, 12)},
+                {key: 'multfilm', label: 'Multfilmlar', viewAll: {type: 'category', slug: 'multfilmlar'}, items: multfilmResult.items.slice(0, 12)},
+            ],
+        };
+    });
 }
 
 async function getDetail(url) {
     if (!url || !url.startsWith('http')) {
         throw Object.assign(new Error('Valid absolute URL required'), {status: 400});
     }
+    return swr.fetch(`detail:${url}`, 10 * 60 * 1000, 60 * 60 * 1000, () => buildDetail(url));
+}
 
-    const key = `detail:${url}`;
-    const cached = cacheGet(key);
-    if (cached) return cached;
-
-    const html = await fetchHtml(url.replace(BASE, ''));
+async function buildDetail(url) {
+    const html = await fetchDetailHtml(url);
     const $ = cheerio.load(html);
 
     const rawTitle = $('h1[itemprop="name"]').first().clone().children().remove().end().text().trim() || $('.fs-title').first().clone().children().remove().end().text().trim() || $('h1').first().clone().children().remove().end().text().trim() || $('meta[property="og:title"]').attr('content')?.trim() || '';
@@ -427,7 +364,14 @@ async function getDetail(url) {
     const cast = [];
     $('a[href*="/xfsearch/actors/"]').each((_, el) => {
         const name = $(el).text().trim();
-        if (name) cast.push(name);
+        if (!name) return;
+        const href = $(el).attr('href') || '';
+        const m = href.match(/\/xfsearch\/actors\/([^/]+)/);
+        const id = m
+            ? decodeURIComponent(m[1]).toLowerCase().replace(/\s+/g, '_')
+            : name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const imgSrc = $(el).find('img').attr('src') || $(el).closest('li, div').find('img').attr('src') || null;
+        cast.push({id, name, image: imgSrc ? absUrl(imgSrc) : null});
     });
 
     const director = $('a[href*="/xfsearch/directed/"]').first().text().trim() || null;
@@ -439,29 +383,7 @@ async function getDetail(url) {
 
     const contentId = $('.fs-action-icons__rate[data-id]').first().attr('data-id') || (url.match(/\/(\d+)-/) || [])[1] || null;
 
-    const episodes = [];
-    $('#episodes-raw-data a[href]').each((_, el) => {
-        const raw = $(el).attr('href');
-        const label = $(el).attr('data-label') || $(el).text().trim();
-        const num = parseInt($(el).text().trim());
-        const videoUrl = normalizeVideoUrl(unwrapPlayerUrl(raw));
-        if (videoUrl) {
-            episodes.push({episode: isNaN(num) ? episodes.length + 1 : num, label, videoUrl});
-        }
-    });
-
-    let videoSources = [];
-    $('.fs-player__tab[data-url]').each((_, el) => {
-        const raw = $(el).attr('data-url');
-        const quality = $(el).attr('data-name') || $(el).text().trim();
-        const isDefault = $(el).hasClass('active');
-        const videoUrl = normalizeVideoUrl(unwrapPlayerUrl(raw));
-        if (videoUrl) videoSources.push({quality, videoUrl, isDefault});
-    });
-
-    if (videoSources.length > 0) {
-        videoSources = await verifyVideoSources(videoSources);
-    }
+    const isSerial = $('#episodes-raw-data a[href]').length > 0;
 
     const screenshots = [];
     $('.fs-screenshots__item').each((_, el) => {
@@ -472,23 +394,7 @@ async function getDetail(url) {
 
     const related = parseCards(`<div>${$('.fs-related').html() || ''}</div>`).slice(0, 12);
 
-    let playerSrc = null;
-    if (videoSources.length > 0) {
-        const accessible = videoSources.filter(s => s.accessible !== false);
-        const best = accessible.find(s => s.isDefault) || accessible[0] || videoSources[0];
-        playerSrc = best.videoUrl;
-    } else if (episodes.length > 0) {
-        playerSrc = episodes[0].videoUrl;
-    }
-
-    if (!playerSrc) {
-        const iframeSrc = $('iframe[data-player-src]').first().attr('data-player-src') || $('iframe[src]').first().attr('src') || $('iframe[data-src]').first().attr('data-src') || null;
-        playerSrc = normalizeVideoUrl(unwrapPlayerUrl(iframeSrc));
-    }
-
-    const isSerial = episodes.length > 0;
-
-    const result = {
+    return {
         provider: PROVIDER,
         contentId,
         contentUrl: url,
@@ -503,21 +409,67 @@ async function getDetail(url) {
         cast: [...new Set(cast)].slice(0, 20),
         likes,
         dislikes,
-        isSerial, ...(isSerial ? {episodes} : {}), ...(!isSerial ? {videoSources} : {}),
+        isSerial,
         screenshots,
         related,
-        playerSrc,
     };
+}
 
-    cacheSet(key, result, 10 * 60 * 1000);
-    return result;
+async function getEpisodes(url) {
+    if (!url || !url.startsWith('http')) {
+        throw Object.assign(new Error('Valid absolute URL required'), {status: 400});
+    }
+    return swr.fetch(`episodes:${url}`, 10 * 60 * 1000, 60 * 60 * 1000, () => buildEpisodes(url));
+}
+
+async function buildEpisodes(url) {
+    const html = await fetchDetailHtml(url);
+    const $ = cheerio.load(html);
+
+    const episodes = [];
+    $('#episodes-raw-data a[href]').each((_, el) => {
+        const raw = $(el).attr('href');
+        const label = $(el).attr('data-label') || $(el).text().trim();
+        const num = parseInt($(el).text().trim());
+        if (raw) {
+            episodes.push({episode: isNaN(num) ? episodes.length + 1 : num, label, mediaRef: raw});
+        }
+    });
+
+    const isSerial = episodes.length > 0;
+
+    if (isSerial) {
+        return {provider: PROVIDER, contentUrl: url, isSerial: true, episodes};
+    }
+
+    const videoSources = [];
+    $('.fs-player__tab[data-url]').each((_, el) => {
+        const raw = $(el).attr('data-url');
+        const quality = $(el).attr('data-name') || $(el).text().trim();
+        const isDefault = $(el).hasClass('active');
+        const videoUrl = normalizeVideoUrl(unwrapPlayerUrl(raw));
+        if (videoUrl) videoSources.push({quality, videoUrl, isDefault});
+    });
+
+    let playerSrc = null;
+    if (videoSources.length > 0) {
+        const best = videoSources.find(s => s.isDefault) || videoSources[0];
+        playerSrc = best.videoUrl;
+    }
+
+    if (!playerSrc) {
+        const iframeSrc = $('iframe[data-player-src]').first().attr('data-player-src') || $('iframe[src]').first().attr('src') || $('iframe[data-src]').first().attr('data-src') || null;
+        playerSrc = normalizeVideoUrl(unwrapPlayerUrl(iframeSrc));
+    }
+
+    return {provider: PROVIDER, contentUrl: url, isSerial: false, videoSources, playerSrc, headers: VIDEO_HEADERS};
 }
 
 async function checkVideoUrl(videoUrl) {
     const normalized = normalizeVideoUrl(videoUrl);
     try {
         const response = await axios.head(normalized, {
-            timeout: 8000, headers: {'User-Agent': 'Mozilla/5.0', Range: 'bytes=0-0'}, maxRedirects: 5,
+            timeout: 8000, headers: {...VIDEO_HEADERS, Range: 'bytes=0-0'}, maxRedirects: 5,
         });
         return {
             accessible: response.status < 400,
@@ -530,6 +482,14 @@ async function checkVideoUrl(videoUrl) {
         const status = err.response?.status || 0;
         return {accessible: status !== 404, status, error: err.message};
     }
+}
+
+async function resolveMedia(mediaRef) {
+    return swr.fetch(`media:${mediaRef}`, 30 * 60 * 1000, 30 * 60 * 1000, async () => {
+        const videoUrl = normalizeVideoUrl(unwrapPlayerUrl(mediaRef));
+        if (!videoUrl) throw Object.assign(new Error('Media URL aniqlanmadi'), {status: 422});
+        return {videoUrl, headers: VIDEO_HEADERS};
+    });
 }
 
 function getCategoryList() {
@@ -560,6 +520,8 @@ module.exports = {
     search,
     getHome,
     getDetail,
+    getEpisodes,
+    resolveMedia,
     checkVideoUrl,
     getCategoryList,
     getGenreList,

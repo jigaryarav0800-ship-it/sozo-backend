@@ -1,80 +1,175 @@
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const admin = require('../config/firebase');
+const bcrypt     = require('bcryptjs');
+const User       = require('../models/User');
+const otpService = require('./otpService');
+const { signAccess, signRefresh, verifyRefresh } = require('../utils/jwt');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
-const JWT_EXPIRES = '7d';
 const HISTORY_LIMIT = 50;
+const EMAIL_RE      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function signToken(user) {
-  return jwt.sign({ id: user._id, email: user.email }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+function err(message, status) {
+  return Object.assign(new Error(message), { status });
 }
 
-function sanitize(user) {
+function payload(user) {
+  return { id: user._id, username: user.username };
+}
+
+async function _issueTokens(user) {
+  const accessToken  = signAccess(payload(user));
+  const refreshToken = signRefresh(payload(user));
+  user.refreshToken  = await bcrypt.hash(refreshToken, 10);
+  await user.save();
+  return { accessToken, refreshToken };
+}
+
+function safeUser(user) {
   const obj = user.toObject ? user.toObject() : { ...user };
   delete obj.password;
+  delete obj.refreshToken;
   return obj;
 }
 
-async function register(username, email, password) {
-  const [existingEmail, existingUsername] = await Promise.all([
-    User.findOne({ email }),
-    User.findOne({ username }),
-  ]);
-  if (existingEmail) throw Object.assign(new Error('Email already in use'), { status: 409 });
-  if (existingUsername) throw Object.assign(new Error('Username already taken'), { status: 409 });
+async function startRegister(email, username, password) {
+  if (!EMAIL_RE.test(email)) throw err('Email formati noto\'g\'ri', 400);
+  if (password.length < 6)   throw err('Parol kamida 6 ta belgidan iborat bo\'lishi kerak', 400);
+  if (username.length < 3)   throw err('Username kamida 3 ta belgidan iborat bo\'lishi kerak', 400);
 
-  const hashed = await bcrypt.hash(password, 10);
-  const user = await User.create({ username, email, password: hashed });
+  if (await User.findOne({ email }))    throw err('Bu email allaqachon ro\'yxatdan o\'tgan', 409);
+  if (await User.findOne({ username })) throw err('Bu username band', 409);
 
-  return { token: signToken(user), user: sanitize(user) };
+  const passwordHash = await bcrypt.hash(password, 12);
+  const { expiresIn, expiresAt } = await otpService.startRegister({ email, username, passwordHash });
+  return { message: 'Tasdiqlash kodi emailingizga yuborildi', email, expiresIn, expiresAt };
 }
 
-async function login(email, password) {
-  const user = await User.findOne({ email });
-  if (!user) throw Object.assign(new Error('Invalid credentials'), { status: 401 });
-
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) throw Object.assign(new Error('Invalid credentials'), { status: 401 });
-
-  return { token: signToken(user), user: sanitize(user) };
+async function resendRegisterOtp(email) {
+  if (!EMAIL_RE.test(email)) throw err('Email formati noto\'g\'ri', 400);
+  const { expiresIn, expiresAt } = await otpService.resendRegister({ email });
+  return { message: 'Yangi tasdiqlash kodi yuborildi', email, expiresIn, expiresAt };
 }
 
-async function getProfile(userId) {
-  const user = await User.findById(userId).select('-password');
-  if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
-  return user;
-}
+async function verifyRegister(email, otp) {
+  if (!EMAIL_RE.test(email)) throw err('Email formati noto\'g\'ri', 400);
+  if (!otp)                  throw err('OTP majburiy', 400);
 
-async function updateProfile(userId, { username, photoURL }) {
-  if (username) {
-    const existing = await User.findOne({ username, _id: { $ne: userId } });
-    if (existing) throw Object.assign(new Error('Username already taken'), { status: 409 });
+  const verified = await otpService.verifyRegister(email, otp);
+
+  let user;
+  try {
+    user = await User.create({
+      email:        verified.email,
+      username:     verified.username,
+      password:     verified.passwordHash,
+      authProvider: 'local',
+    });
+  } catch (e) {
+    if (e.code === 11000) {
+      const field = Object.keys(e.keyPattern || {})[0];
+      throw err(field === 'email' ? 'Bu email allaqachon ro\'yxatdan o\'tgan' : 'Bu username band', 409);
+    }
+    throw e;
   }
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { ...(username && { username }), ...(photoURL !== undefined && { photoURL }) },
-    { new: true }
-  ).select('-password');
-  if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
-  return user;
+
+  const { accessToken, refreshToken } = await _issueTokens(user);
+  return { user: safeUser(user), accessToken, refreshToken };
 }
 
-async function getFavorites(userId) {
-  const user = await User.findById(userId).select('favorites');
-  if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
-  return user.favorites;
+async function login(identifier, password) {
+  if (!identifier || !password) throw err('Login va parol majburiy', 400);
+  const lookup = identifier.includes('@')
+    ? { email: identifier.toLowerCase().trim() }
+    : { username: identifier.trim() };
+
+  const user = await User.findOne(lookup);
+  if (!user || !user.password) throw err("Login yoki parol noto'g'ri", 401);
+
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) throw err("Login yoki parol noto'g'ri", 401);
+
+  const { accessToken, refreshToken } = await _issueTokens(user);
+  return { user: safeUser(user), accessToken, refreshToken };
+}
+
+async function forgotPassword(email) {
+  if (!EMAIL_RE.test(email)) throw err('Email formati noto\'g\'ri', 400);
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    return { message: 'Agar email tizimda bo\'lsa, kod yuborildi', email };
+  }
+  const { expiresIn, expiresAt } = await otpService.startReset({ email });
+  return { message: 'Parolni tiklash kodi yuborildi', email, expiresIn, expiresAt };
+}
+
+async function resetPassword(email, otp, newPassword) {
+  if (!EMAIL_RE.test(email))   throw err('Email formati noto\'g\'ri', 400);
+  if (!otp)                    throw err('OTP majburiy', 400);
+  if (!newPassword || newPassword.length < 6) {
+    throw err('Yangi parol kamida 6 ta belgidan iborat bo\'lishi kerak', 400);
+  }
+
+  await otpService.verifyReset(email, otp);
+
+  const user = await User.findOne({ email });
+  if (!user) throw err('Foydalanuvchi topilmadi', 404);
+
+  user.password     = await bcrypt.hash(newPassword, 12);
+  user.refreshToken = null;
+  await user.save();
+
+  const { accessToken, refreshToken } = await _issueTokens(user);
+  return { user: safeUser(user), accessToken, refreshToken };
+}
+
+async function refresh(token) {
+  let decoded;
+  try { decoded = verifyRefresh(token); }
+  catch { throw err('Refresh token noto\'g\'ri yoki muddati o\'tgan', 401); }
+
+  const user = await User.findById(decoded.id);
+  if (!user || !user.refreshToken) throw err('Session topilmadi', 401);
+
+  const match = await bcrypt.compare(token, user.refreshToken);
+  if (!match) throw err('Refresh token mos emas', 401);
+
+  const { accessToken, refreshToken } = await _issueTokens(user);
+  return { accessToken, refreshToken };
+}
+
+async function logout(userId) {
+  await User.findByIdAndUpdate(userId, { refreshToken: null });
+}
+
+async function updateProfile(userId, { username, displayName, photoURL }) {
+  const update = {};
+
+  if (username !== undefined) {
+    const trimmed = username.trim();
+    if (!trimmed) throw err('Username bo\'sh bo\'lishi mumkin emas', 400);
+    if (trimmed.length < 3) throw err('Username kamida 3 ta belgidan iborat bo\'lishi kerak', 400);
+    const taken = await User.findOne({ username: trimmed, _id: { $ne: userId } });
+    if (taken) throw err('Username band', 409);
+    update.username = trimmed;
+  }
+
+  if (displayName !== undefined) update.displayName = displayName;
+  if (photoURL    !== undefined) update.photoURL    = photoURL;
+
+  if (!Object.keys(update).length) throw err('Yangilanadigan maydon ko\'rsatilmadi', 400);
+
+  const user = await User.findByIdAndUpdate(userId, update, { new: true, runValidators: true })
+    .select('-password -refreshToken');
+  if (!user) throw err('Foydalanuvchi topilmadi', 404);
+  return user;
 }
 
 async function addFavorite(userId, { provider, contentUrl, title = null, thumbnail = null }) {
-  // Remove existing entry by contentUrl (dedup), then push new
   await User.updateOne({ _id: userId }, { $pull: { favorites: { contentUrl } } });
   return User.findByIdAndUpdate(
     userId,
     { $push: { favorites: { provider, contentUrl, title, thumbnail } } },
     { new: true }
-  ).select('-password');
+  ).select('-password -refreshToken');
 }
 
 async function removeFavorite(userId, contentUrl) {
@@ -82,31 +177,24 @@ async function removeFavorite(userId, contentUrl) {
     userId,
     { $pull: { favorites: { contentUrl } } },
     { new: true }
-  ).select('-password');
-}
-
-async function getHistory(userId) {
-  const user = await User.findById(userId).select('watchHistory');
-  if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
-  return user.watchHistory;
+  ).select('-password -refreshToken');
 }
 
 async function addToHistory(userId, { provider, contentUrl, title = null, thumbnail = null }) {
   await User.updateOne({ _id: userId }, { $pull: { watchHistory: { contentUrl } } });
-
   return User.findByIdAndUpdate(
     userId,
     {
       $push: {
         watchHistory: {
-          $each: [{ provider, contentUrl, title, thumbnail, watchedAt: new Date() }],
+          $each:     [{ provider, contentUrl, title, thumbnail, watchedAt: new Date() }],
           $position: 0,
-          $slice: HISTORY_LIMIT,
+          $slice:    HISTORY_LIMIT,
         },
       },
     },
     { new: true }
-  ).select('-password');
+  ).select('-password -refreshToken');
 }
 
 async function clearHistory(userId) {
@@ -114,7 +202,7 @@ async function clearHistory(userId) {
     userId,
     { $set: { watchHistory: [] } },
     { new: true }
-  ).select('-password');
+  ).select('-password -refreshToken');
 }
 
 async function removeFromHistory(userId, contentUrl) {
@@ -122,56 +210,14 @@ async function removeFromHistory(userId, contentUrl) {
     userId,
     { $pull: { watchHistory: { contentUrl } } },
     { new: true }
-  ).select('-password');
-}
-
-async function loginWithGoogle(idToken) {
-  let decoded;
-  try {
-    decoded = await admin.auth().verifyIdToken(idToken);
-  } catch (err) {
-    throw Object.assign(new Error('Invalid or expired Google token'), { status: 401 });
-  }
-
-  const { uid, email, name, picture } = decoded;
-  if (!email) throw Object.assign(new Error('Google account has no email'), { status: 400 });
-
-  let user = await User.findOne({ firebaseUid: uid });
-  if (!user) user = await User.findOne({ email });
-
-  if (user) {
-    if (!user.firebaseUid) {
-      user.firebaseUid = uid;
-      user.authProvider = 'google';
-      if (picture && !user.photoURL) user.photoURL = picture;
-      await user.save();
-    }
-  } else {
-    let baseUsername = (name || email.split('@')[0])
-      .replace(/[^a-zA-Z0-9_]/g, '_')
-      .slice(0, 20);
-    let username = baseUsername;
-    let suffix = 1;
-    while (await User.findOne({ username })) {
-      username = `${baseUsername}_${suffix++}`;
-    }
-
-    user = await User.create({
-      username,
-      email,
-      password: null,
-      photoURL: picture || null,
-      firebaseUid: uid,
-      authProvider: 'google',
-    });
-  }
-
-  return { token: signToken(user), user: sanitize(user) };
+  ).select('-password -refreshToken');
 }
 
 module.exports = {
-  register, login, loginWithGoogle,
-  getProfile, updateProfile,
-  getFavorites, addFavorite, removeFavorite,
-  getHistory, addToHistory, clearHistory, removeFromHistory,
+  startRegister, resendRegisterOtp, verifyRegister,
+  login, refresh, logout,
+  forgotPassword, resetPassword,
+  updateProfile,
+  addFavorite, removeFavorite,
+  addToHistory, clearHistory, removeFromHistory,
 };

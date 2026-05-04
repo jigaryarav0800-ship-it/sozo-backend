@@ -11,7 +11,12 @@ const pageParam = {
 
 const providerParam = {
   in: 'query', name: 'provider',
-  schema: { type: 'string', default: 'asilmedia', example: 'asilmedia' },
+  schema: {
+    type: 'string',
+    default: 'asilmedia',
+    enum: ['asilmedia', 'anikai', 'idub', 'mochitv', 'uzmovi'],
+    example: 'asilmedia',
+  },
   description: 'Kontent manbai (default: asilmedia)',
 };
 
@@ -181,8 +186,8 @@ module.exports = {
     '/contents/detail': {
       get: {
         tags: ['Contents'],
-        summary: 'Kontent detail — epizodlar, video sifati, skrinshot, o\'xshashlar',
-        description: 'Provider `url` dan avtomatik aniqlanadi.',
+        summary: 'Kontent metadatasi — yengil va tez',
+        description: 'Faqat metadata: title, description, cast, screenshots, related va isSerial flag. Epizodlar yoki video manbalari uchun /contents/episodes ga murojaat qiling. Provider `url` dan avtomatik aniqlanadi.',
         parameters: [
           {
             in: 'query', name: 'url', required: true,
@@ -193,10 +198,141 @@ module.exports = {
         ],
         responses: {
           200: {
-            description: 'Kontent ma\'lumotlari',
+            description: 'Kontent metadatasi',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ContentDetail' } } },
           },
           400: { $ref: '#/components/responses/BadRequest' },
+          502: { $ref: '#/components/responses/BadGateway' },
+        },
+      },
+    },
+
+    '/contents/episodes': {
+      get: {
+        tags: ['Contents'],
+        summary: 'Ijro payloadi — epizodlar (serial) yoki video manbalari (kino)',
+        description: "Detail dan alohida endpoint, chunki ayrim providerlar epizodlarni alohida so'rovda olib keladi. Serial bo'lsa `episodes` (lazy `mediaRef` bilan, paginated), kino bo'lsa `videoSources` + `playerSrc` qaytaradi.\n\n**Pagination & sort** (faqat serial uchun):\n- `page` (default 1) va `size` (default 100, max 500) — One Piece kabi 1000+ epizodli serial uchun.\n- `sort=asc` (1 → N, default) yoki `sort=desc` (N → 1) — masalan, oxirgi epizoddan boshlab ko'rish uchun.\n\nProvider `url` dan avtomatik aniqlanadi.",
+        parameters: [
+          {
+            in: 'query', name: 'url', required: true,
+            schema: { type: 'string' },
+            description: 'Kontent URL (istalgan provider)',
+            example: 'https://asilmedia.org/17987-arosat-oramizda.html',
+          },
+          {
+            in: 'query', name: 'page',
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Sahifa raqami (faqat serial uchun)',
+          },
+          {
+            in: 'query', name: 'size',
+            schema: { type: 'integer', default: 100, minimum: 1, maximum: 500 },
+            description: 'Sahifadagi epizodlar soni',
+          },
+          {
+            in: 'query', name: 'sort',
+            schema: { type: 'string', enum: ['asc', 'desc'], default: 'asc' },
+            description: "asc = 1→N (default), desc = N→1",
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Ijro payloadi',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/EpisodesPayload' } } },
+          },
+          400: { $ref: '#/components/responses/BadRequest' },
+          501: { description: "Provider epizodlarni qo'llab-quvvatlamaydi" },
+          502: { $ref: '#/components/responses/BadGateway' },
+        },
+      },
+    },
+
+    '/contents/media': {
+      get: {
+        tags: ['Contents'],
+        summary: 'Epizod video URL ni yechish (lazy load)',
+        description: 'Detail dagi `mediaRef` ni real video URL ga aylantiradi. Serial epizodini ijro etish oldidan chaqiriladi. Provider o\'z mantig\'ini implement qiladi — boshqa provider uchun alohida HTML so\'rov yuborilishi mumkin.',
+        parameters: [
+          {
+            in: 'query', name: 'ref', required: true,
+            schema: { type: 'string' },
+            description: 'Detail epizodidagi `mediaRef` qiymati',
+          },
+          {
+            in: 'query', name: 'provider', required: true,
+            schema: { type: 'string', example: 'asilmedia' },
+            description: 'Provider nomi (detail responsedagi `provider` field)',
+          },
+          {
+            in: 'query', name: 'lang', required: false,
+            schema: { type: 'string', enum: ['sub', 'softsub', 'dub'], default: 'sub' },
+            description: 'Faqat anikai uchun: ovoz/subtitr varianti. Episodes responsedagi `availableLangs` ichidan tanlang.',
+          },
+          {
+            in: 'query', name: 'server', required: false,
+            schema: { type: 'integer', default: 1, minimum: 1 },
+            description: 'Faqat anikai uchun: server tartib raqami (1, 2…). Default 1.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Video URL',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    videoUrl:  { type: 'string', description: 'To\'g\'ridan-to\'g\'ri ijro etiluvchi video URL (MP4, M3U8...)' },
+                    type:      { type: 'string', nullable: true, example: 'hls' },
+                    headers:   {
+                      type: 'object',
+                      additionalProperties: { type: 'string' },
+                      description: 'Playerga uzatish kerak bo\'lgan HTTP headerlar (Referer, User-Agent...). Hotlink himoyasidan o\'tish uchun majburiy.',
+                      example: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0)...', 'Referer': 'https://asilmedia.org/' },
+                    },
+                    subtitles: {
+                      type: 'array', nullable: true,
+                      description: 'Faqat anikai: tashqi subtitr fayllari',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          label:   { type: 'string' },
+                          file:    { type: 'string' },
+                          kind:    { type: 'string', example: 'captions' },
+                          default: { type: 'boolean' },
+                        },
+                      },
+                    },
+                    skip: {
+                      type: 'object', nullable: true,
+                      description: 'Faqat anikai: intro/outro skip vaqtlari (sekund)',
+                      properties: {
+                        intro: { type: 'array', items: { type: 'integer' } },
+                        outro: { type: 'array', items: { type: 'integer' } },
+                      },
+                    },
+                    server: {
+                      type: 'object', nullable: true,
+                      description: 'Faqat anikai: tanlangan server',
+                      properties: {
+                        name: { type: 'string' },
+                        sid:  { type: 'integer' },
+                        lang: { type: 'string' },
+                      },
+                    },
+                    languagesAvailable: {
+                      type: 'array', nullable: true,
+                      description: 'Faqat anikai: epizod uchun mavjud til variantlari',
+                      items: { type: 'string', enum: ['sub', 'softsub', 'dub'] },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: '#/components/responses/BadRequest' },
+          422: { description: 'Video URL aniqlanmadi' },
+          501: { description: 'Provider media yechishni qo\'llab-quvvatlamaydi' },
           502: { $ref: '#/components/responses/BadGateway' },
         },
       },

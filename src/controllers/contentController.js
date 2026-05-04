@@ -1,4 +1,4 @@
-const { getProvider, detectProvider, listProviders, normalizeDetail } = require('../providers');
+const { getProvider, detectProvider, listProviders, normalizeDetail, normalizeEpisodes, normalizeMedia, getEpisodes: providerGetEpisodes, resolveMedia } = require('../providers');
 
 async function getLatest(req, res) {
   const { page = 1, provider = 'asilmedia' } = req.query;
@@ -65,6 +65,15 @@ async function getDetail(req, res) {
   res.json(normalizeDetail(raw, providerName));
 }
 
+async function getEpisodes(req, res) {
+  const { url, page, size, sort } = req.query;
+  if (!url) return res.status(400).json({ message: 'url parametri majburiy' });
+  const providerName = detectProvider(url);
+  const opts = { page, size, sort };
+  const raw = await providerGetEpisodes(providerName, url, opts);
+  res.json(normalizeEpisodes(raw, providerName, opts));
+}
+
 async function checkVideo(req, res) {
   const { url } = req.query;
   if (!url) return res.status(400).json({ message: 'url parametri majburiy' });
@@ -75,21 +84,42 @@ async function checkVideo(req, res) {
 
 async function getCategories(req, res) {
   const { provider = 'asilmedia' } = req.query;
-  res.json({ items: getProvider(provider).getCategoryList() });
+  const items = await getProvider(provider).getCategoryList();
+  res.json({ items });
 }
 
 async function getGenres(req, res) {
   const { provider = 'asilmedia' } = req.query;
-  res.json({ items: getProvider(provider).getGenreList() });
+  const items = await getProvider(provider).getGenreList();
+  res.json({ items });
+}
+
+async function getMedia(req, res) {
+  const { ref, provider, lang, server } = req.query;
+  if (!ref)      return res.status(400).json({ message: 'ref parametri majburiy' });
+  if (!provider) return res.status(400).json({ message: 'provider parametri majburiy' });
+  const raw = await resolveMedia(provider, ref, { lang, server });
+  res.json(normalizeMedia(raw, provider));
 }
 
 async function getProviders(req, res) {
   res.json({ items: listProviders() });
 }
 
+async function diagnose(req, res) {
+  const { url, provider = 'anikai' } = req.query;
+  if (!url) return res.status(400).json({ message: 'url parametri majburiy' });
+  const p = getProvider(provider);
+  if (typeof p.diagnose !== 'function') {
+    return res.status(501).json({ message: `${provider} diagnose qo'llab-quvvatlamaydi` });
+  }
+  const result = await p.diagnose(url);
+  res.json(result);
+}
+
 module.exports = {
   getLatest, getHome,
   getCategory, getGenre, getYear, getCountry, getActor, getDirector,
-  search, getDetail, checkVideo,
-  getCategories, getGenres, getProviders,
+  search, getDetail, getEpisodes, getMedia, checkVideo,
+  getCategories, getGenres, getProviders, diagnose,
 };

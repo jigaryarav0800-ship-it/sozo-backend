@@ -18,12 +18,14 @@ const historySchema = {
 };
 
 const userSchema = new mongoose.Schema({
-  username:    { type: String, required: true, unique: true, trim: true },
-  email:       { type: String, required: true, unique: true, lowercase: true, trim: true },
-  password:    { type: String, default: null },
-  photoURL:    { type: String, default: null },
-  firebaseUid: { type: String, unique: true, sparse: true },
-  authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
+  username:     { type: String, required: true, unique: true, trim: true },
+  email:        { type: String, required: true, unique: true, lowercase: true, trim: true },
+  password:     { type: String, default: null },
+  displayName:  { type: String, default: null },
+  photoURL:     { type: String, default: null },
+  firebaseUid:  { type: String, unique: true, sparse: true },
+  authProvider: { type: String, enum: ['local', 'google', 'firebase'], default: 'local' },
+  refreshToken: { type: String, default: null },
   favorites:    [favoriteSchema],
   watchHistory: [historySchema],
 }, { timestamps: true });

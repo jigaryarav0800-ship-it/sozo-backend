@@ -1,15 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const c = require('../controllers/contentController');
+const { rateLimit, timeout } = require('../middlewares/rateLimit');
+
+const generalLimit = rateLimit({ name: 'content',     capacity: 60, refillPerSec: 1 });
+const heavyLimit   = rateLimit({ name: 'media',       capacity: 20, refillPerSec: 1 / 3 });
+const searchLimit  = rateLimit({ name: 'search',      capacity: 30, refillPerSec: 1 / 2 });
+
+router.use(timeout(20_000));
+router.use(generalLimit);
 
 router.get('/providers',            c.getProviders);
 router.get('/categories',           c.getCategories);
 router.get('/genres',               c.getGenres);
 router.get('/home',                 c.getHome);
 router.get('/latest',               c.getLatest);
-router.get('/search',               c.search);
+router.get('/search',               searchLimit, c.search);
 router.get('/detail',               c.getDetail);
+router.get('/episodes',             c.getEpisodes);
+router.get('/media',                heavyLimit, c.getMedia);
 router.get('/check-video',          c.checkVideo);
+router.get('/diagnose',             heavyLimit, c.diagnose);
 router.get('/category/:category',   c.getCategory);
 router.get('/genre/:genre',         c.getGenre);
 router.get('/year/:year',           c.getYear);
