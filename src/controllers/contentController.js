@@ -77,9 +77,9 @@ async function search(req, res) {
 }
 
 async function getDetail(req, res) {
-  const { url } = req.query;
+  const { url, provider } = req.query;
   if (!url) return res.status(400).json({ message: 'url parametri majburiy' });
-  const providerName = detectProvider(url);
+  const providerName = provider || detectProvider(url);
   const raw = await getProvider(providerName).getDetail(url);
   const detail = normalizeDetail(raw, providerName);
   const isFavorited = isFavoritedBy(req.user, providerName, detail, url);
@@ -88,9 +88,9 @@ async function getDetail(req, res) {
 }
 
 async function getEpisodes(req, res) {
-  const { url, page, size, sort } = req.query;
+  const { url, page, size, sort, provider } = req.query;
   if (!url) return res.status(400).json({ message: 'url parametri majburiy' });
-  const providerName = detectProvider(url);
+  const providerName = provider || detectProvider(url);
   const opts = { page, size, sort };
   const raw = await providerGetEpisodes(providerName, url, opts);
   res.json(normalizeEpisodes(raw, providerName, opts));
