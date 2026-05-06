@@ -14,7 +14,7 @@ const likeLimit = rateLimit({ name: 'shorts:like', capacity: 10, refillPerSec: 1
 router.get('/feed',       optionalAuth, readLimit, c.feed);          // mobile uchun optimallashtirilgan
 router.get('/',           optionalAuth, readLimit, c.list);
 router.get('/:id',        optionalAuth, readLimit, c.getOne);
-router.post('/:id/view',               viewLimit,  c.incrementView);
+router.post('/:id/view',  optionalAuth, viewLimit,  c.incrementView);
 router.post('/:id/like',  auth,         likeLimit,  c.toggleLike);
 
 module.exports = router;

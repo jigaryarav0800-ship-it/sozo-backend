@@ -23,11 +23,28 @@ swr.startSweepTimer();
 // ─── embed URL builders ────────────────────────────────────────────────────────
 
 function movieEmbedUrl(id) {
-  return `${EMBED_BASE}/embed/movie/${id}`;
+  return `${EMBED_BASE}/movie/${id}`;
 }
 
 function tvEmbedUrl(id, season, episode) {
-  return `${EMBED_BASE}/embed/tv/${id}/${season}/${episode}`;
+  return `${EMBED_BASE}/tv/${id}/${season}/${episode}`;
+}
+
+function parseVidsrcUrl(url) {
+  const value = String(url || '');
+  let m = value.match(/vidsrc\.ru\/(?:embed\/)?movie\/([^/?#]+)/i);
+  if (m) return { type: 'movie', id: decodeURIComponent(m[1]), season: null, episode: null };
+
+  m = value.match(/vidsrc\.ru\/(?:embed\/)?tv\/([^/?#]+)\/(\d+)\/(\d+)/i);
+  if (m) {
+    return {
+      type:    'tv',
+      id:      decodeURIComponent(m[1]),
+      season:  Number(m[2]),
+      episode: Number(m[3]),
+    };
+  }
+  return null;
 }
 
 // ─── TMDB-delegated catalog ────────────────────────────────────────────────────
@@ -41,16 +58,24 @@ const getActor    = (actor, page = 1)   => tmdb.getActor(PROVIDER, actor, page);
 const getDirector = (dir, page = 1)     => tmdb.getDirector(PROVIDER, dir, page);
 const search      = (q, page = 1)       => tmdb.search(PROVIDER, q, page);
 const getHome     = ()                  => tmdb.getHome(PROVIDER);
-const getDetail   = (url)               => tmdb.getDetail(PROVIDER, url);
+
+async function getDetail(url) {
+  const ref = tmdb.parseUrl(url) || parseVidsrcUrl(url);
+  if (!ref || /^tt\d+$/i.test(String(ref.id))) {
+    return tmdb.getDetail(PROVIDER, url);
+  }
+  const detailUrl = tmdb.parseUrl(url) ? url : tmdb.siteUrl(ref.type, ref.id);
+  return tmdb.getDetail(PROVIDER, detailUrl);
+}
 
 // ─── episodes ──────────────────────────────────────────────────────────────────
 
 async function getEpisodes(url) {
-  const ref = tmdb.parseUrl(url);
+  const ref = tmdb.parseUrl(url) || parseVidsrcUrl(url);
   if (!ref) throw Object.assign(new Error('Valid TMDB URL required'), { status: 400 });
 
   return swr.fetch(`vidsrc:episodes:${url}`, 10 * 60 * 1000, 60 * 60 * 1000, async () => {
-    const ext = await tmdb.getExternalIds(ref.type, ref.id).catch(() => ({}));
+    const ext = /^tt\d+$/i.test(String(ref.id)) ? {} : await tmdb.getExternalIds(ref.type, ref.id).catch(() => ({}));
     const imdbId = ext.imdb_id || null;
     const preferredId = imdbId || ref.id;
 
@@ -68,7 +93,21 @@ async function getEpisodes(url) {
     }
 
     // TV — get all seasons from TMDB detail
-    const detail = await tmdb.getDetail(PROVIDER, url);
+    if (/^tt\d+$/i.test(String(ref.id))) {
+      const embedUrl = tvEmbedUrl(ref.id, ref.season || 1, ref.episode || 1);
+      return {
+        provider:     PROVIDER,
+        contentUrl:   url,
+        isSerial:     false,
+        videoSources: [{ quality: 'Auto', videoUrl: embedUrl, isDefault: true }],
+        playerSrc:    embedUrl,
+        type:         'iframe',
+        headers:      EMBED_HEADERS,
+      };
+    }
+
+    const detailUrl = tmdb.parseUrl(url) ? url : tmdb.siteUrl(ref.type, ref.id);
+    const detail = await tmdb.getDetail(PROVIDER, detailUrl);
     const seasons = (detail.extra?.seasons || []).filter(s => s.seasonNumber > 0);
     if (seasons.length === 0) {
       return { provider: PROVIDER, contentUrl: url, isSerial: true, episodes: [] };
@@ -120,9 +159,9 @@ async function resolveMedia(mediaRef) {
   } else if (/^tt\d+$/.test(mediaRef)) {
     imdbId = mediaRef; type = 'movie';
   } else {
-    const ref = tmdb.parseUrl(mediaRef);
+    const ref = tmdb.parseUrl(mediaRef) || parseVidsrcUrl(mediaRef);
     if (!ref) throw Object.assign(new Error('vidsrc: invalid mediaRef'), { status: 400 });
-    const ext = await tmdb.getExternalIds(ref.type, ref.id).catch(() => ({}));
+    const ext = /^tt\d+$/i.test(String(ref.id)) ? {} : await tmdb.getExternalIds(ref.type, ref.id).catch(() => ({}));
     imdbId = ext.imdb_id || null;
     tmdbId = ref.id;
     type = ref.type;

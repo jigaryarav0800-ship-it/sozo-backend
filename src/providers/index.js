@@ -1,13 +1,13 @@
-const asilmedia = require('./asilmedia');
-const anikai    = require('./anikai');
-const idub      = require('./idub');
-const mochitv   = require('./mochitv');
-const uzmovi    = require('./uzmovi');
-const vidapi    = require('./vidapi');
-const animeav1  = require('./animeav1');
-const vidsrc    = require('./vidsrc');
+const asilmedia  = require('./asilmedia');
+const anikai     = require('./anikai');
+const idub       = require('./idub');
+const mochitv    = require('./mochitv');
+const uzmovi     = require('./uzmovi');
+const vidapi     = require('./vidapi');
+const vidsrc     = require('./vidsrc');
+const animeav1   = require('./animeav1');
 
-const _providers = { vidapi, asilmedia, anikai, idub, mochitv, uzmovi, animeav1, vidsrc };
+const _providers = { vidapi, vidsrc, asilmedia, anikai, idub, mochitv, uzmovi, animeav1 };
 
 const _meta = {
     vidapi: {
@@ -16,6 +16,13 @@ const _meta = {
         image:       'https://vidapi.ru/favicon.ico',
         url:         'https://vidapi.ru',
         description: 'Universal TMDB/IMDb-backed catalog — VidAPI (vaplayer.ru) iframe playback',
+    },
+    vidsrc: {
+        id:          'vidsrc',
+        name:        'Vidsrc.Ru',
+        image:       'https://vidsrc.ru/favicon.ico',
+        url:         'https://vidsrc.ru',
+        description: 'Universal TMDB/IMDb-backed catalog - Vidsrc.Ru playback',
     },
     animeav1: {
         id:          'animeav1',
@@ -36,7 +43,7 @@ const _meta = {
         name:        'AnimeKAI',
         image:       'https://play-lh.googleusercontent.com/OwgUfCxkDmV3wFlqViTGPAt1yAY7h1MWbvLoveVxIWvwtsgzRdrGPc-X5coLm-clg0Mz_HOg123RX73dpGH0_Ew',
         url:         'https://anikai.to',
-        description: 'Sub & Dub anime — multi-language streaming (sub / softsub / dub)',
+        description: 'Sub & Dub anime - multi-language streaming (sub / softsub / dub)',
     },
     idub: {
         id:          'idub',
@@ -58,13 +65,6 @@ const _meta = {
         image:       'https://avatars.githubusercontent.com/u/106664405?s=200&v=4',
         url:         'https://uzmovi.tv',
         description: "O'zbek tilidagi onlayn kinoteatr — kinolar, seriallar, anime",
-    },
-    vidsrc: {
-        id:          'vidsrc',
-        name:        'VidSrc',
-        image:       'https://vidsrc.ru/favicon.ico',
-        url:         'https://vidsrc.ru',
-        description: 'TMDB/IMDb-based universal streaming — movies & TV series embed player',
     },
 };
 

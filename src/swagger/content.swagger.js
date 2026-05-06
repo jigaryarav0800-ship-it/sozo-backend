@@ -14,7 +14,7 @@ const providerParam = {
   schema: {
     type: 'string',
     default: 'asilmedia',
-    enum: ['asilmedia', 'anikai', 'idub', 'mochitv', 'uzmovi', 'vidapi', 'animeav1'],
+    enum: ['asilmedia', 'anikai', 'idub', 'mochitv', 'uzmovi', 'vidapi', 'vidsrc', 'animeav1'],
     example: 'asilmedia',
   },
   description: 'Kontent manbai (default: asilmedia)',
@@ -267,12 +267,12 @@ module.exports = {
           {
             in: 'query', name: 'lang', required: false,
             schema: { type: 'string', enum: ['sub', 'softsub', 'dub'], default: 'sub' },
-            description: 'Faqat anikai uchun: ovoz/subtitr varianti. Episodes responsedagi `availableLangs` ichidan tanlang.',
+            description: 'Provider qo\'llasa: ovoz/subtitr varianti. Episodes responsedagi `availableLangs` ichidan tanlang.',
           },
           {
             in: 'query', name: 'server', required: false,
             schema: { type: 'integer', default: 1, minimum: 1 },
-            description: 'Faqat anikai uchun: server tartib raqami (1, 2…). Default 1.',
+            description: 'Provider qo\'llasa: server tartib raqami (1, 2...). Default 1.',
           },
         ],
         responses: {
@@ -293,7 +293,7 @@ module.exports = {
                     },
                     subtitles: {
                       type: 'array', nullable: true,
-                      description: 'Faqat anikai: tashqi subtitr fayllari',
+                      description: 'Provider qo\'llasa: tashqi subtitr fayllari',
                       items: {
                         type: 'object',
                         properties: {
@@ -306,7 +306,7 @@ module.exports = {
                     },
                     skip: {
                       type: 'object', nullable: true,
-                      description: 'Faqat anikai: intro/outro skip vaqtlari (sekund)',
+                      description: 'Provider qo\'llasa: intro/outro skip vaqtlari (sekund)',
                       properties: {
                         intro: { type: 'array', items: { type: 'integer' } },
                         outro: { type: 'array', items: { type: 'integer' } },
@@ -314,7 +314,7 @@ module.exports = {
                     },
                     server: {
                       type: 'object', nullable: true,
-                      description: 'Faqat anikai: tanlangan server',
+                      description: 'Provider qo\'llasa: tanlangan server',
                       properties: {
                         name: { type: 'string' },
                         sid:  { type: 'integer' },
@@ -323,7 +323,7 @@ module.exports = {
                     },
                     languagesAvailable: {
                       type: 'array', nullable: true,
-                      description: 'Faqat anikai: epizod uchun mavjud til variantlari',
+                      description: 'Provider qo\'llasa: epizod uchun mavjud til variantlari',
                       items: { type: 'string', enum: ['sub', 'softsub', 'dub'] },
                     },
                   },

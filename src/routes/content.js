@@ -21,6 +21,7 @@ router.get('/detail',               optionalAuth, c.getDetail);
 router.get('/episodes',             c.getEpisodes);
 router.get('/media',                heavyLimit, c.getMedia);
 router.get('/check-video',          c.checkVideo);
+router.get('/subtitles',            generalLimit, c.getSubtitles);
 router.get('/diagnose',             heavyLimit, c.diagnose);
 router.get('/category/:category',   c.getCategory);
 router.get('/genre/:genre',         c.getGenre);

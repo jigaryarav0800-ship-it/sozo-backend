@@ -164,12 +164,14 @@ async function updateProfile(userId, { username, displayName, photoURL }) {
 }
 
 async function addFavorite(userId, { provider, contentUrl, title = null, thumbnail = null }) {
-  await User.updateOne({ _id: userId }, { $pull: { favorites: { contentUrl } } });
-  return User.findByIdAndUpdate(
-    userId,
+  // Atomik: faqat contentUrl yo'q bo'lganda qo'shadi — race condition'dan himoya
+  const updated = await User.findOneAndUpdate(
+    { _id: userId, 'favorites.contentUrl': { $ne: contentUrl } },
     { $push: { favorites: { provider, contentUrl, title, thumbnail } } },
     { new: true }
   ).select('-password -refreshToken');
+  if (updated) return updated;
+  return User.findById(userId).select('-password -refreshToken');
 }
 
 async function removeFavorite(userId, contentUrl) {

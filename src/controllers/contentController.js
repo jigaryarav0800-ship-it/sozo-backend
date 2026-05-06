@@ -1,4 +1,5 @@
 const { getProvider, detectProvider, listProviders, normalizeDetail, normalizeEpisodes, normalizeMedia, getEpisodes: providerGetEpisodes, resolveMedia } = require('../providers');
+const wyzieService = require('../services/wyzieService');
 
 function normalizeFavoriteUrl(value) {
   return String(value || '').replace(/\/+$/, '');
@@ -128,6 +129,13 @@ async function getProviders(req, res) {
   res.json({ items: listProviders() });
 }
 
+async function getSubtitles(req, res) {
+  const { id, language = 'en', type, season, episode } = req.query;
+  if (!id) return res.status(400).json({ message: 'id (TMDB yoki IMDB) majburiy' });
+  const items = await wyzieService.searchSubtitles({ id, language, type, season, episode });
+  res.json({ items });
+}
+
 async function diagnose(req, res) {
   const { url, provider = 'anikai' } = req.query;
   if (!url) return res.status(400).json({ message: 'url parametri majburiy' });
@@ -143,5 +151,5 @@ module.exports = {
   getLatest, getHome,
   getCategory, getGenre, getYear, getCountry, getActor, getDirector,
   search, getDetail, getEpisodes, getMedia, checkVideo,
-  getCategories, getGenres, getProviders, diagnose,
+  getCategories, getGenres, getProviders, diagnose, getSubtitles,
 };

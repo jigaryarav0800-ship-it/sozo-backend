@@ -1,7 +1,11 @@
 const mongoose = require('mongoose');
 const Short    = require('../models/Short');
 
-const FEED_SELECT = 'title videoUrl thumbnailUrl provider contentTitle contentThumbnail views likes tags createdAt';
+const FEED_SELECT  = 'title videoUrl thumbnailUrl provider contentTitle contentThumbnail views likes tags createdAt';
+const FEED_PROJECT = {
+  title: 1, videoUrl: 1, thumbnailUrl: 1, provider: 1,
+  contentTitle: 1, contentThumbnail: 1, views: 1, likes: 1, tags: 1, createdAt: 1,
+};
 
 function err(message, status) {
   return Object.assign(new Error(message), { status });
@@ -14,6 +18,27 @@ function formatLean(obj, userId) {
     : false;
   const { likes, videoKey, thumbnailKey, createdBy, ...rest } = obj;
   return { ...rest, likeCount, likedByMe };
+}
+
+function formatFeedItem(s, userId) {
+  const likeCount = s.likes?.length || 0;
+  const likedByMe = userId
+    ? (s.likes || []).some(id => id.toString() === userId.toString())
+    : false;
+  return {
+    _id:              s._id,
+    title:            s.title,
+    videoUrl:         s.videoUrl,
+    thumbnailUrl:     s.thumbnailUrl,
+    provider:         s.provider,
+    contentTitle:     s.contentTitle,
+    contentThumbnail: s.contentThumbnail,
+    views:            s.views,
+    likeCount,
+    likedByMe,
+    tags:             s.tags,
+    createdAt:        s.createdAt,
+  };
 }
 
 function escapeRegex(s) {
@@ -51,11 +76,21 @@ async function list(req, res) {
   });
 }
 
-// Mobile feed — cursor-based pagination, faqat kerakli fieldlar
+// Mobile feed — cursor-based yoki shuffle pagination
 async function feed(req, res) {
-  const limit  = Math.min(20, Math.max(1, parseInt(req.query.limit) || 10));
-  const filter = buildFilter(req.query);
-  const userId = req.user?._id ?? null;
+  const limit   = Math.min(20, Math.max(1, parseInt(req.query.limit) || 10));
+  const shuffle = req.query.shuffle === 'true' || req.query.shuffle === '1';
+  const filter  = buildFilter(req.query);
+  const userId  = req.user?._id ?? null;
+
+  if (shuffle) {
+    const raw = await Short.aggregate([
+      { $match: filter },
+      { $sample: { size: limit } },
+      { $project: FEED_PROJECT },
+    ]);
+    return res.json({ items: raw.map(s => formatFeedItem(s, userId)), nextCursor: null, hasMore: false });
+  }
 
   if (req.query.cursor) {
     try { filter._id = { $lt: new mongoose.Types.ObjectId(req.query.cursor) }; }
@@ -72,29 +107,7 @@ async function feed(req, res) {
   if (hasMore) raw.pop();
 
   const nextCursor = hasMore ? raw[raw.length - 1]._id.toString() : null;
-
-  const items = raw.map(s => {
-    const likeCount = s.likes?.length || 0;
-    const likedByMe = userId
-      ? (s.likes || []).some(id => id.toString() === userId.toString())
-      : false;
-    return {
-      _id:              s._id,
-      title:            s.title,
-      videoUrl:         s.videoUrl,
-      thumbnailUrl:     s.thumbnailUrl,
-      provider:         s.provider,
-      contentTitle:     s.contentTitle,
-      contentThumbnail: s.contentThumbnail,
-      views:            s.views,
-      likeCount,
-      likedByMe,
-      tags:             s.tags,
-      createdAt:        s.createdAt,
-    };
-  });
-
-  res.json({ items, nextCursor, hasMore });
+  res.json({ items: raw.map(s => formatFeedItem(s, userId)), nextCursor, hasMore });
 }
 
 async function getOne(req, res) {
