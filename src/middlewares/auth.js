@@ -60,6 +60,7 @@ async function auth(req, res, next) {
   }
   const user = await tryAuthenticate(header.slice(7));
   if (!user) return res.status(401).json({ message: 'Token noto\'g\'ri yoki muddati o\'tgan' });
+  if (user.banned) return res.status(403).json({ message: 'Hisobingiz bloklangan', reason: user.banReason || null });
   req.user = user;
   next();
 }

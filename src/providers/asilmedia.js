@@ -183,6 +183,7 @@ function parseCards(input) {
             year: yearText ? parseInt(yearText) || null : null,
             rating: parseInt(ratingRaw) || 0,
             qualities,
+            genres:     [],
             category: categoryText || null,
         });
     });

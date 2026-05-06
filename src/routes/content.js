@@ -14,7 +14,7 @@ router.use(generalLimit);
 router.get('/providers',            c.getProviders);
 router.get('/categories',           c.getCategories);
 router.get('/genres',               c.getGenres);
-router.get('/home',                 c.getHome);
+router.get('/home',                 optionalAuth, c.getHome);
 router.get('/latest',               c.getLatest);
 router.get('/search',               searchLimit, c.search);
 router.get('/detail',               optionalAuth, c.getDetail);

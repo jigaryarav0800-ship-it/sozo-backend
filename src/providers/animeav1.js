@@ -226,6 +226,7 @@ function parseCard($, el) {
         year:       null,
         rating:     0,
         qualities:  [],
+        genres:     [],
         category,
     };
 }

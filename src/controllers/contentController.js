@@ -29,6 +29,24 @@ async function getLatest(req, res) {
 async function getHome(req, res) {
   const { provider = 'asilmedia' } = req.query;
   const result = await getProvider(provider).getHome();
+
+  // token bo'lsa — myList seksiyasini qo'shish
+  if (req.user && Array.isArray(req.user.favorites) && req.user.favorites.length > 0) {
+    const myListItems = req.user.favorites
+      .filter(f => !provider || f.provider === provider)
+      .slice(0, 12)
+      .map(f => ({
+        provider:   f.provider,
+        title:      f.title || '',
+        contentUrl: f.contentUrl,
+        thumbnail:  f.thumbnail || null,
+      }));
+    if (myListItems.length > 0) {
+      const myListSection = { key: 'my-list', label: 'Mening ro\'yxatim', items: myListItems };
+      result.sections = [myListSection, ...(result.sections || [])];
+    }
+  }
+
   res.json(result);
 }
 

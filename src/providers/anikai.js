@@ -249,6 +249,7 @@ function parseCard($, el) {
     year:       null,
     rating:     0,
     qualities,
+    genres:     [],
     category,
     extra:      { jpTitle, sub, dub, episodes: epCount ? Number(epCount) : null },
   };

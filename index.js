@@ -19,11 +19,17 @@ const adminRoutes   = require('./src/routes/admin/index');
 
 const app = express();
 
-app.use(loadShed({ softMs: 200, hardMs: 500 }));
-app.use(cors());
+// Nginx orqasida ishlaganda real IP olish
+app.set('trust proxy', 1);
+
+app.use(loadShed({ softMs: 2000, hardMs: 8000 }));
+app.use(cors(process.env.CORS_ORIGIN
+  ? { origin: process.env.CORS_ORIGIN.split(','), credentials: true }
+  : {}
+));
 app.use(compression());
-app.use(express.json());
-app.use(morgan('dev'));
+app.use(express.json({ limit: '5mb' }));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 const CACHE_RULES = [
   { test: /^\/api\/contents\/home$/,       maxAge: 300, swr: 600 },
@@ -82,10 +88,26 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 
 connectDB().then(() => {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Server:  http://localhost:${PORT}`);
     console.log(`Swagger: http://localhost:${PORT}/api-docs`);
   });
+
+  // Graceful shutdown — Docker stop signali kelganda DB ulanishni to'g'ri yopish
+  const shutdown = (signal) => {
+    console.log(`\n${signal} received — shutting down...`);
+    server.close(() => {
+      const mongoose = require('mongoose');
+      mongoose.connection.close(false).then(() => {
+        console.log('MongoDB disconnected');
+        process.exit(0);
+      });
+    });
+    // 10 sekund kutib force exit
+    setTimeout(() => process.exit(0), 10_000);
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
 }).catch((err) => {
   console.error('Startup error:', err);
   process.exit(1);

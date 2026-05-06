@@ -26,6 +26,8 @@ const userSchema = new mongoose.Schema({
   firebaseUid:  { type: String, unique: true, sparse: true },
   authProvider: { type: String, enum: ['local', 'google', 'firebase'], default: 'local' },
   refreshToken: { type: String, default: null },
+  banned:       { type: Boolean, default: false },
+  banReason:    { type: String, default: null },
   favorites:    [favoriteSchema],
   watchHistory: [historySchema],
 }, { timestamps: true });

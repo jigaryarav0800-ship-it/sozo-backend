@@ -1,0 +1,75 @@
+services:
+  # ── MongoDB ──────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-soplay}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS:-soplay_secret_change_me}
+    # 4GB droplet: mongo ga 1GB cache, qolgani OS ga
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.75", "--quiet"]
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.75"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - internal
+
+  # ── Node.js App ──────────────────────────────────────────────────────────────
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGODB_URI: mongodb://${MONGO_USER:-soplay}:${MONGO_PASS:-soplay_secret_change_me}@mongo:27017/soplay?authSource=admin
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.5"
+    networks:
+      - internal
+    volumes:
+      - ./serviceAccount.json:/app/serviceAccount.json:ro
+
+  # ── Nginx ────────────────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${PUBLIC_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_cache:/var/cache/nginx
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+    networks:
+      - internal
+
+volumes:
+  mongo_data:
+  nginx_cache:
+
+networks:
+  internal:
+    driver: bridge

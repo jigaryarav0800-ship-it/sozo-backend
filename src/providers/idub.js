@@ -158,6 +158,7 @@ function parseCard($, el) {
         year:       null,
         rating:     0,
         qualities:  quality ? [quality] : [],
+        genres:     [],
         category:   cats || null,
         extra:      { episodes: epCount, seasons: seasonCount },
     };

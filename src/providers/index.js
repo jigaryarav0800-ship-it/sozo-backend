@@ -1,13 +1,15 @@
 const asilmedia  = require('./asilmedia');
 const anikai     = require('./anikai');
 const idub       = require('./idub');
+const kinogo     = require('./kinogo');
 const mochitv    = require('./mochitv');
 const uzmovi     = require('./uzmovi');
 const vidapi     = require('./vidapi');
 const vidsrc     = require('./vidsrc');
+const pinoymoviepedia     = require('./pinoymoviepedia');
 const animeav1   = require('./animeav1');
 
-const _providers = { vidapi, vidsrc, asilmedia, anikai, idub, mochitv, uzmovi, animeav1 };
+const _providers = { vidapi, vidsrc, asilmedia, anikai, idub, kinogo, mochitv, uzmovi, /*pinoymoviepedia,*/ animeav1 };
 
 const _meta = {
     vidapi: {
@@ -52,6 +54,14 @@ const _meta = {
         url:         'https://idub.tv',
         description: "O'zbek tilidagi seriallar va doramalar — mover.uz orqali oqim",
     },
+    kinogo: {
+        id:          'kinogo',
+        name:        'KinoGo',
+        image:       'https://kinogo-film.my/favicon.ico',
+        logo:        'https://kinogo-film.my/favicon.ico',
+        url:         'https://kinogo-film.my',
+        description: 'Русские фильмы и сериалы онлайн — KinoGo',
+    },
     mochitv: {
         id:          'mochitv',
         name:        'MochiTV',
@@ -66,6 +76,7 @@ const _meta = {
         url:         'https://uzmovi.tv',
         description: "O'zbek tilidagi onlayn kinoteatr — kinolar, seriallar, anime",
     },
+
 };
 
 function httpError(message, status) {
@@ -91,10 +102,12 @@ function detectProvider(contentUrl) {
 function listProviders() {
     return Object.keys(_providers).map(id => {
         const m = _meta[id] ?? {};
+        const img = m.image ?? null;
         return {
             id,
             name:        m.name        ?? id,
-            image:       m.image       ?? null,
+            image:       img,
+            logo:        img,
             url:         m.url         ?? null,
             description: m.description ?? null,
             domains:     _providers[id].domains ?? [],

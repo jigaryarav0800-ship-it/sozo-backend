@@ -155,6 +155,7 @@ function createUzmoviProvider({ name, base, embedHost, videoExtraction: defaultV
             year:       null,
             rating:     0,
             qualities:  [],
+            genres:     [],
             category:   null,
         };
     }

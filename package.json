@@ -4,10 +4,17 @@
   "description": "Soplay backend API",
   "main": "index.js",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "seed:admin": "node scripts/seedAdmin.js"
+    "seed:admin": "node scripts/seedAdmin.js",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f app",
+    "docker:seed": "docker compose exec app node scripts/seedAdmin.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1041.0",

@@ -2,6 +2,7 @@ const axios = require('axios');
 const https = require('https');
 const tmdb = require('../utils/tmdb');
 const { SwrCache } = require('../utils/swrCache');
+const wyzie = require('../services/wyzieService');
 
 const PROVIDER = 'vidapi';
 const STREAM_API = 'https://streamdata.vaplayer.ru/api.php';
@@ -108,7 +109,18 @@ async function getEpisodes(url) {
                     videoSources: [], playerSrc: null, type: null, headers: STREAM_HEADERS,
                 };
             }
-            return {
+            let movieSubtitles = (data?.subtitles || data?.tracks || [])
+                .map(t => ({
+                    label:   (t.label || t.lang || 'subtitle').trim(),
+                    file:    t.file || t.url || t.src,
+                    kind:    t.kind || 'captions',
+                    default: Boolean(t.default),
+                }))
+                .filter(t => t.file);
+            if (movieSubtitles.length === 0 && imdbId) {
+                movieSubtitles = await wyzie.searchSubtitles({ id: imdbId, type: 'movie' }).catch(() => []);
+            }
+            const movieResult = {
                 provider:     PROVIDER,
                 contentUrl:   url,
                 isSerial:     false,
@@ -117,6 +129,8 @@ async function getEpisodes(url) {
                 type:         'hls',
                 headers:      STREAM_HEADERS,
             };
+            if (movieSubtitles.length > 0) movieResult.subtitles = movieSubtitles;
+            return movieResult;
         }
 
         const availability = await fetchAvailability({ imdbId, tmdbId: ref.id })
@@ -188,7 +202,24 @@ async function resolveMedia(mediaRef) {
         throw Object.assign(new Error('vidapi: stream URLs not available for this title'), { status: 502 });
     }
 
-    return {
+    // stream API dan subtitle olishga urinish
+    let subtitles = (data.subtitles || data.tracks || [])
+        .map(t => ({
+            label:   (t.label || t.lang || 'subtitle').trim(),
+            file:    t.file || t.url || t.src,
+            kind:    t.kind || 'captions',
+            default: Boolean(t.default),
+        }))
+        .filter(t => t.file);
+
+    // stream API bermasa — wyzie dan olish
+    if (subtitles.length === 0 && imdbId) {
+        subtitles = await wyzie.searchSubtitles({
+            id: imdbId, type, season, episode,
+        }).catch(() => []);
+    }
+
+    const result = {
         videoUrl:     sources[0].videoUrl,
         type:         'hls',
         headers:      STREAM_HEADERS,
@@ -196,6 +227,8 @@ async function resolveMedia(mediaRef) {
         title:        data.title || null,
         backdrop:     data.backdrop || null,
     };
+    if (subtitles.length > 0) result.subtitles = subtitles;
+    return result;
 }
 
 async function checkVideoUrl(videoUrl) {
