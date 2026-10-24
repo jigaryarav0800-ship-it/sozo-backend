@@ -2,7 +2,10 @@ const axios = require('axios');
 const https = require('https');
 const { SwrCache } = require('./swrCache');
 
-const TMDB_BASE = process.env.TMDB_PROXY_URL || 'https://jumpfreedom.com/3';
+const TMDB_API_KEY = String(process.env.TMDB_API_KEY || '').trim();
+const TMDB_BASE = process.env.TMDB_PROXY_URL
+    || (TMDB_API_KEY ? 'https://api.themoviedb.org/3' : 'https://jumpfreedom.com/3');
+const TMDB_USES_API_KEY = Boolean(TMDB_API_KEY && new URL(TMDB_BASE).hostname === 'api.themoviedb.org');
 const IMG_BASE  = 'https://image.tmdb.org/t/p';
 
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 8 });
@@ -25,7 +28,8 @@ async function api(path, params = {}) {
     const key = `tmdb:${path}:${JSON.stringify(params)}`;
     return swr.fetch(key, 10 * 60 * 1000, 60 * 60 * 1000, async () => {
         try {
-            const res = await http.get(path, { params });
+            const requestParams = TMDB_USES_API_KEY ? { ...params, api_key: TMDB_API_KEY } : params;
+            const res = await http.get(path, { params: requestParams });
             return res.data;
         } catch (err) {
             const status = err.response?.status;
@@ -76,10 +80,20 @@ function siteUrl(type, id)              { return `https://www.themoviedb.org/${t
 
 function parseUrl(url) {
     if (!url) return null;
-    const m = String(url).match(/themoviedb\.org\/(movie|tv)\/(\d+)(?:\/season\/(\d+)(?:\/episode\/(\d+))?)?/i);
+    let parsed;
+    try {
+        parsed = new URL(String(url));
+    } catch {
+        return null;
+    }
+    if (parsed.protocol !== 'https:'
+        || !['themoviedb.org', 'www.themoviedb.org'].includes(parsed.hostname.toLowerCase())
+        || parsed.username || parsed.password || (parsed.port && parsed.port !== '443')) return null;
+    const m = parsed.pathname.match(/^\/(movie|tv)\/(\d+)(?:-[^/]+)?(?:\/season\/(\d+)(?:-[^/]+)?(?:\/episode\/(\d+)(?:-[^/]+)?)?)?\/?$/i);
     if (!m) return null;
+    if (m[1].toLowerCase() === 'movie' && m[3]) return null;
     return {
-        type:    m[1],
+        type:    m[1].toLowerCase(),
         id:      Number(m[2]),
         season:  m[3] ? Number(m[3]) : null,
         episode: m[4] ? Number(m[4]) : null,
@@ -269,6 +283,13 @@ async function getDetail(providerName, url) {
                  || null;
     const genres = (data.genres || []).map(g => g.name);
     const imdbId = data.external_ids?.imdb_id || data.imdb_id || null;
+    const spokenLanguages = (data.spoken_languages || [])
+        .filter(language => language && (language.iso_639_1 || language.english_name || language.name))
+        .map(language => ({
+            code:        language.iso_639_1 || null,
+            englishName: language.english_name || null,
+            name:        language.name || null,
+        }));
 
     return {
         provider:    providerName,
@@ -281,6 +302,8 @@ async function getDetail(providerName, url) {
         year:        year ? Number(year) : null,
         duration,
         country,
+        originalLanguage: data.original_language || null,
+        spokenLanguages,
         director,
         genres,
         cast,
@@ -315,6 +338,24 @@ async function getSeasonEpisodes(tmdbId, season) {
 
 async function getExternalIds(type, tmdbId) {
     return api(`/${type}/${tmdbId}/external_ids`);
+}
+
+async function getLanguages() {
+    const data = await api('/configuration/languages');
+    return (Array.isArray(data) ? data : [])
+        .filter(language => language && typeof language.iso_639_1 === 'string' && language.iso_639_1)
+        .map(language => ({
+            code:        language.iso_639_1,
+            englishName: language.english_name || language.name || language.iso_639_1,
+            label:       language.english_name || language.name || language.iso_639_1,
+            name:        language.name || '',
+        }))
+        .sort((left, right) => left.englishName.localeCompare(right.englishName));
+}
+
+async function getWatchProviders(type, tmdbId) {
+    const data = await api(`/${type}/${tmdbId}/watch/providers`);
+    return data?.results && typeof data.results === 'object' ? data.results : {};
 }
 
 function categoryList(providerName) {
@@ -357,6 +398,8 @@ module.exports = {
     getDetail,
     getSeasonEpisodes,
     getExternalIds,
+    getLanguages,
+    getWatchProviders,
     categoryList,
     genreList,
     CATEGORIES,
