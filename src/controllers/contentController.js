@@ -69,6 +69,16 @@ async function getYear(req, res) {
   res.json(result);
 }
 
+async function discover(req, res) {
+  const { page = 1, provider = 'asilmedia', ...filters } = req.query;
+  const selected = getProvider(provider);
+  if (typeof selected.discover !== 'function') {
+    return res.status(501).json({ message: `${provider} discovery is not supported` });
+  }
+  const result = await selected.discover(filters, page);
+  res.json(result);
+}
+
 async function getCountry(req, res) {
   const { page = 1, provider = 'asilmedia' } = req.query;
   const result = await getProvider(provider).getCountry(req.params.country, page);
@@ -213,7 +223,7 @@ async function diagnose(req, res) {
 
 module.exports = {
   getLatest, getHome,
-  getCategory, getGenre, getYear, getCountry, getActor, getDirector,
+  getCategory, getGenre, getYear, discover, getCountry, getActor, getDirector,
   search, getDetail, getEpisodes, getMedia, checkVideo,
   getCategories, getGenres, getProviders, getLanguages, getWatchProviders, diagnose, getSubtitles,
 };

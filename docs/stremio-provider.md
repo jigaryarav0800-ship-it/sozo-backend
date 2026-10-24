@@ -10,7 +10,9 @@ Configure at most 12 add-ons. The sample hostnames above are placeholders, not e
 
 For direct TMDB API access, set `TMDB_API_KEY` as a backend secret. It is read only by the server and must never be embedded in Android/Web builds, source archives, or public logs. If no key is configured, the existing backend TMDB proxy path is retained.
 
-The profile uses TMDB for worldwide catalog, search, details, and episode metadata. TMDB's `original_language` and `spoken_languages` are returned on content details as **catalog metadata hints**. For a selected title, playback asks configured add-ons for the standard `/stream/{movie|series}/{id}.json` response. Movies use `/api/contents/episodes?provider=stremio&url=...`; series return TMDB episode metadata and opaque `mediaRef` values resolved by `/api/contents/media?provider=stremio&ref=...`. Send `provider=stremio` on TMDB URLs because other providers may share those URLs.
+The profile uses TMDB for worldwide catalog, search, details, and episode metadata. Home, genre, category, year, search, and combined filters use `/api/contents/...` with `provider=stremio`; combined discovery filters use `GET /api/contents/discover?provider=stremio&type=movie|tv&sort=popular|rating|newest&year=YYYY&rating=0..10&genre=<slug-or-id>`. TMDB's `original_language` and `spoken_languages` are returned on content details as **catalog metadata hints**. For a selected title, playback asks configured add-ons for the standard `/stream/{movie|series}/{id}.json` response. Movies use `/api/contents/episodes?provider=stremio&url=...`; series return TMDB episode metadata and opaque `mediaRef` values resolved by `/api/contents/media?provider=stremio&ref=...`. Send `provider=stremio` on TMDB URLs because other providers may share those URLs.
+
+`GET /api/contents/providers` marks Stremio `browseOnly: true` with a reason until at least one valid server-configured manifest is present. The client must not offer this catalog adapter as a playable source while it is browse-only.
 
 ## Audio-language selection
 

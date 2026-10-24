@@ -33,6 +33,25 @@ test('normalizes only secure public add-on manifest URLs', () => {
   assert.throws(() => _test.normalizeManifestUrl('https://addons.example.org/manifest.json?token=secret'), /query/);
 });
 
+test('maps Worldwide discovery filters to safe TMDB parameters', () => {
+  const result = tmdb.discoverParams({
+    type: 'tv', sort: 'newest', year: '2024', rating: '7', genre: 'drama',
+  }, 3);
+  assert.deepEqual(result, {
+    type: 'tv',
+    params: {
+      page: 3,
+      sort_by: 'first_air_date.desc',
+      include_adult: false,
+      first_air_date_year: 2024,
+      'vote_average.gte': 7,
+      with_genres: 18,
+    },
+  });
+  assert.throws(() => tmdb.discoverParams({ type: 'person' }), /type must be movie or tv/);
+  assert.throws(() => tmdb.discoverParams({ genre: 'not-a-genre' }), /Unknown genre/);
+});
+
 test('rejects private, reserved, and non-routable IP ranges', () => {
   for (const address of [
     '0.0.0.0', '10.1.2.3', '100.64.0.1', '127.0.0.1', '169.254.1.2',

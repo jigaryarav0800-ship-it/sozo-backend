@@ -84,6 +84,14 @@ function configuredManifestUrls() {
   return normalized;
 }
 
+function isPlaybackConfigured() {
+  try {
+    return configuredManifestUrls().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeManifestUrl(value) {
   let url;
   try {
@@ -544,6 +552,7 @@ const getLatest = (page = 1) => tmdb.getLatest(PROVIDER, page);
 const getCategory = (category, page = 1) => tmdb.getCategory(PROVIDER, category, page);
 const getGenre = (genre, page = 1) => tmdb.getGenre(PROVIDER, genre, page);
 const getYear = (year, page = 1) => tmdb.getYear(PROVIDER, year, page);
+const discover = (filters, page = 1) => tmdb.discover(PROVIDER, filters, page);
 const getCountry = (country, page = 1) => tmdb.getCountry(PROVIDER, country, page);
 const getActor = (actor, page = 1) => tmdb.getActor(PROVIDER, actor, page);
 const getDirector = (director, page = 1) => tmdb.getDirector(PROVIDER, director, page);
@@ -621,6 +630,7 @@ module.exports = {
   getCategory,
   getGenre,
   getYear,
+  discover,
   getCountry,
   getActor,
   getDirector,
@@ -631,7 +641,9 @@ module.exports = {
   resolveMedia,
   getCategoryList,
   getGenreList,
+  isPlaybackConfigured,
   _test: {
+    isPlaybackConfigured,
     normalizeManifestUrl,
     isPublicIPv4,
     isPublicIPv6,

@@ -110,7 +110,7 @@ function listProviders() {
     return Object.keys(_providers).map(id => {
         const m = _meta[id] ?? {};
         const img = m.image ?? null;
-        return {
+    return {
             id,
             name:        m.name        ?? id,
             image:       img,
@@ -118,6 +118,12 @@ function listProviders() {
             url:         m.url         ?? null,
             description: m.description ?? null,
             domains:     _providers[id].domains ?? [],
+            ...(id === 'stremio' && !_providers[id].isPlaybackConfigured?.()
+                ? {
+                    browseOnly: true,
+                    browseOnlyReason: 'Playback requires a valid server-configured community add-on manifest.',
+                  }
+                : {}),
         };
     });
 }

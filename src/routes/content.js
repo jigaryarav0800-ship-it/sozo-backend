@@ -19,6 +19,7 @@ router.get('/genres',               c.getGenres);
 router.get('/home',                 optionalAuth, c.getHome);
 router.get('/latest',               c.getLatest);
 router.get('/search',               searchLimit, c.search);
+router.get('/discover',             searchLimit, c.discover);
 router.get('/detail',               optionalAuth, c.getDetail);
 router.get('/episodes',             c.getEpisodes);
 router.get('/media',                heavyLimit, c.getMedia);
