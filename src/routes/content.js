@@ -12,6 +12,8 @@ router.use(timeout(20_000));
 router.use(generalLimit);
 
 router.get('/providers',            c.getProviders);
+router.get('/languages',            c.getLanguages);
+router.get('/watch-providers',      c.getWatchProviders);
 router.get('/categories',           c.getCategories);
 router.get('/genres',               c.getGenres);
 router.get('/home',                 optionalAuth, c.getHome);
